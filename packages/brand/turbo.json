@@ -1,0 +1,15 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      // $TURBO_DEFAULT$ so the vendored fonts, this file and anything else added
+      // to the package all count towards the cache key — the OG image used to
+      // depend on the host's installed fonts, which no input could capture.
+      // exports/ is excluded: it is this task's own output and is tracked in git,
+      // so leaving it in would make every run a miss after the first.
+      "inputs": ["$TURBO_DEFAULT$", "!exports/**"],
+      "outputs": ["exports/**"]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+// Launches the extension from apps/extension in a new Extension Development Host.
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Run Extension",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}/apps/extension"
+			],
+			"outFiles": [
+				"${workspaceFolder}/apps/extension/dist/**/*.js"
+			],
+			"preLaunchTask": "${defaultBuildTask}"
+		}
+	]
+}

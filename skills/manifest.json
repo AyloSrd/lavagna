@@ -1,0 +1,27 @@
+{
+  "$comment": "Catalogue of the skills Lavagna ships. Each entry points at a folder here containing a SKILL.md whose frontmatter carries name, description and metadata.version. `path` is a single folder name directly under skills/ — never an absolute path, never a path with `..` — and must equal `id`; consumers read either field, so both are kept deliberately. Validated by scripts/check-skills.mjs. The .vsix bundles this folder and the extension's Skills panel installs from it; the plugin/marketplace manifests read it too.",
+  "version": 1,
+  "skills": [
+    {
+      "id": "lavagna",
+      "path": "lavagna",
+      "title": "Lavagna boards",
+      "summary": "Treat a .lavagna.md board as the shared working surface: answer in chat and rewrite the board as the living plan.",
+      "core": true
+    },
+    {
+      "id": "lavagna-spiral",
+      "path": "lavagna-spiral",
+      "title": "Answer the spirals",
+      "summary": "Find every ꩜ marker on a board and write the answer in its place, reading the surrounding section and referenced files first.",
+      "core": false
+    },
+    {
+      "id": "lavagna-execute",
+      "path": "lavagna-execute",
+      "title": "Execute a board",
+      "summary": "Implement a board as the spec: work through its checklist, tick items as they land, and raise a decision spiral when the code contradicts the plan.",
+      "core": false
+    }
+  ]
+}

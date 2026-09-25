@@ -1,0 +1,10 @@
+{
+    "search.exclude": {
+        "**/out": true,
+        "**/dist": true,
+        "**/.turbo": true
+    },
+    // tsc tasks are declared explicitly in tasks.json
+    "typescript.tsc.autoDetect": "off",
+    "npm.packageManager": "pnpm"
+}

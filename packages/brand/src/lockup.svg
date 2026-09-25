@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 120" width="580" height="120">
+  <!-- Mark + wordmark. Live text, pinned to 417 units wide (see wordmark.svg). -->
+  <!-- build: the placeholder below is substituted with the outline from mark.svg by build.mjs. -->
+  <path fill="currentColor" transform="scale(0.12)" d="{{MARK_PATH}}"/>
+  <text x="148" y="94" font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-weight="600" font-size="100" letter-spacing="0.01em" textLength="417" lengthAdjust="spacingAndGlyphs" fill="currentColor">Lavagna</text>
+</svg>

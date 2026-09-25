@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="420" height="120">
+  <!-- Live text. textLength pins the advance to 417 units — the width "Lavagna"
+       has in Inter at this size — so a viewer without Inter gets the same layout
+       with slightly different letterforms, never an overflow. -->
+  <text x="0" y="94" font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-weight="600" font-size="100" letter-spacing="0.01em" textLength="417" lengthAdjust="spacingAndGlyphs" fill="currentColor">Lavagna</text>
+</svg>

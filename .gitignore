@@ -1,0 +1,64 @@
+node_modules
+# Environment files hold secrets; never commit them. (.env.example is fine.)
+.env*
+!.env.example
+dist
+out
+.turbo
+*.vsix
+*.tsbuildinfo
+
+# Extension build outputs
+apps/extension/media/webview.js
+apps/extension/media/webview.js.map
+apps/extension/.vscode-test/
+# Build-time copy of /skills, bundled into the .vsix — the source of truth is /skills
+apps/extension/skills/
+# Build-time copies of packages/brand/exports/ — the source of truth is that folder
+apps/extension/media/icon.png
+apps/extension/media/spiral.svg
+
+# Local working material — boards, agent scratch
+.claude/
+.lavagna/
+# …except the test fixture: the paste provider only offers a reference for a
+# source inside a workspace folder, so the suite needs a real board on disk.
+!apps/extension/src/test/fixtures/**/.lavagna/
+
+# pnpm falls back to an in-repo store when the home store is on another filesystem
+.pnpm-store/
+
+# Files the Claude desktop app drops into the connected folder
+Claude outputs/
+
+# OS and editor droppings. .DS_Store in particular leaks folder names.
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.history/
+
+# Logs, coverage, caches, local test downloads, packed tarballs
+*.log
+coverage/
+.nyc_output/
+.eslintcache
+.vscode-test/
+*.tgz
+
+# Personal overrides (settings.local.json, .env.local-style files, …)
+*.local.*
+
+# Editor/agent folders are committed for their shared config only. Anything
+# else that lands in them (an MCP config with a token, personal settings) is
+# local unless it is deliberately added to the list below.
+.cursor/*
+!.cursor/rules/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json

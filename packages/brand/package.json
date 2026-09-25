@@ -1,0 +1,13 @@
+{
+  "name": "@lavagna/brand",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lavagna brand sources (logo, icon, colours) and their exports, consumed by the extension and the website.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2"
+  }
+}

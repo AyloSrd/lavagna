@@ -1,0 +1,41 @@
+# Only dist/, the media/ runtime assets, skills/, README, CHANGELOG, LICENSE
+# and the manifest belong in the package. Everything below is source or tooling.
+#
+# This is a denylist, so anything new leaks by default. `scripts/check-vsix.mjs`
+# is the allowlist that catches what this file forgets — run `pnpm check-vsix`
+# before publishing.
+
+# Local working material and agent/editor configuration — never ours to ship.
+# All of it is gitignored, so it never shows up in `git status` and a leak here
+# would be silent. Boards especially: they are the user's prompts and plans.
+.lavagna/**
+.claude/**
+.vscode/**
+.github/**
+.cursor/**
+CLAUDE.md
+**/.env*
+**/.npmrc
+**/.yarnrc*
+**/.gitignore
+**/.gitattributes
+**/*.local.*
+
+# Sources and build tooling
+src/**
+out/**
+node_modules/**
+esbuild.js
+**/tsconfig.json
+tsconfig.test.json
+vitest.config.ts
+**/eslint.config.mjs
+**/*.ts
+**/*.map
+**/.vscode-test.*
+.vscode-test/**
+.turbo/**
+pnpm-lock*.yaml
+
+# Build artifacts
+*.vsix

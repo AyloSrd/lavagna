@@ -1,0 +1,28 @@
+{
+  "name": "lavagna-monorepo",
+  "private": true,
+  "description": "Lavagna — the VS Code / Cursor extension, its agent skills, brand assets and website.",
+  "license": "MIT",
+  "packageManager": "pnpm@11.1.2+sha512.415a1cc25974731e75455c1468371be74c5aa5fb7621b50d4056d222451609f11412f23fd602e6169f1e060466641f798597e1be961a10688836a67b16569499",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration",
+    "check": "turbo run typecheck lint test //#check-brand //#check-skills",
+    "check-brand": "node scripts/check-brand-sync.mjs",
+    "check-skills": "node scripts/check-skills.mjs",
+    "package": "turbo run package",
+    "check-vsix": "pnpm --filter lavagna run package && node scripts/check-vsix.mjs",
+    "verify-vsix": "node scripts/check-vsix.mjs",
+    "dev": "pnpm --filter lavagna run watch"
+  },
+  "devDependencies": {
+    "turbo": "^2",
+    "yaml": "2.8.1"
+  }
+}

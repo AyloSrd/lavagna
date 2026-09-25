@@ -1,0 +1,44 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "../../skills/**"],
+      "outputs": ["dist/**", "media/webview.js", "media/icon.png", "media/spiral.svg", "skills/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "lint": {},
+    "test": {
+      "dependsOn": ["^build"]
+    },
+    "test:integration": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "package": {
+      "dependsOn": ["build"],
+      "inputs": ["$TURBO_DEFAULT$", "../../skills/**"],
+      "outputs": ["*.vsix"]
+    },
+    "//#verify-vsix": {
+      "dependsOn": ["lavagna#package"],
+      "cache": false
+    },
+    "watch": {
+      "cache": false,
+      "persistent": true
+    },
+    // docs/assets/ holds committed copies of packages/brand/exports/, because
+    // GitHub Pages serves docs/ from git. Nothing else notices when they drift.
+    "//#check-brand": {
+      "dependsOn": ["@lavagna/brand#build"],
+      "inputs": ["scripts/check-brand-sync.mjs", "docs/assets/**", "packages/brand/exports/**"]
+    },
+    "//#check-skills": {
+      "inputs": ["skills/**", "scripts/check-skills.mjs"]
+    }
+  }
+}

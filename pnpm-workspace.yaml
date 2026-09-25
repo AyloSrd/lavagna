@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Which dependencies may run install scripts.
+allowBuilds:
+  esbuild: true
+  '@vscode/vsce-sign': true
+  # Native module vsce uses for credential storage; not needed to package.
+  keytar: false

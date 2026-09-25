@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <!-- Lavagna icon: chalk spiral on a slate blackboard. slate #22272b, chalk #f2efe9. -->
+  <rect width="1000" height="1000" rx="220" fill="#22272b"/>
+  <!-- Hairline edge so the tile separates from dark marketplace backgrounds (#1e1e1e). -->
+  <rect x="7" y="7" width="986" height="986" rx="213" fill="none" stroke="#f2efe9" stroke-opacity="0.1" stroke-width="14"/>
+  <!-- build: the placeholder below is substituted with the outline from mark.svg by
+       build.mjs. Until then this file draws the tile but no spiral — see the README. -->
+  <path fill="#f2efe9" transform="translate(175 175) scale(0.65)" d="{{MARK_PATH}}"/>
+</svg>

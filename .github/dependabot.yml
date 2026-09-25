@@ -1,0 +1,24 @@
+# Dependabot keeps the SHA-pinned actions in ci.yml current — pinning is only
+# safe if something bumps the pins. `npm` covers the pnpm workspace (root and
+# apps/extension); the lockfile is committed, so updates arrive as PRs that CI
+# checks like any other.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'ci'
+
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /apps/extension
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'chore'
+    groups:
+      dev-dependencies:
+        dependency-type: development

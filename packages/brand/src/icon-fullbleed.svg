@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <!-- The home-screen tile: icon.svg without the rounded corners and without the
+       hairline edge. iOS masks the corners itself, and the hairline only exists to
+       separate the tile from dark marketplace backgrounds — inside iOS's own mask it
+       would show up as a stray outline cut off at the corners. -->
+  <rect width="1000" height="1000" fill="#22272b"/>
+  <!-- build: the placeholder below is substituted with the outline from mark.svg by build.mjs. -->
+  <path fill="#f2efe9" transform="translate(175 175) scale(0.65)" d="{{MARK_PATH}}"/>
+</svg>

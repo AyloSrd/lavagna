@@ -1,0 +1,425 @@
+{
+  "name": "lavagna",
+  "displayName": "Lavagna",
+  "description": "Write structured prompts and plans in markdown, with visual editors for mermaid flowcharts, trees, tables and drawings.",
+  "version": "0.1.5",
+  "publisher": "aylosrd",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AyloSrd/lavagna.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AyloSrd/lavagna/issues"
+  },
+  "homepage": "https://github.com/AyloSrd/lavagna#readme",
+  "keywords": [
+    "markdown",
+    "mermaid",
+    "flowchart",
+    "diagram",
+    "canvas",
+    "prompt",
+    "notes",
+    "outliner"
+  ],
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Visualization",
+    "Notebooks",
+    "Other"
+  ],
+  "galleryBanner": {
+    "color": "#22272b",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:markdown",
+    "workspaceContains:**/*.lavagna.md"
+  ],
+  "main": "./dist/extension.js",
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Boards and blocks work anywhere. Skills can only be installed into a local folder, so the workspace scope is unavailable in a virtual workspace."
+    },
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [],
+      "description": "Skills can only be installed into trusted workspaces."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "lavagna.newBoard",
+        "title": "New Board",
+        "category": "Lavagna",
+        "icon": "$(add)"
+      },
+      {
+        "command": "lavagna.deleteBoard",
+        "title": "Delete Board",
+        "category": "Lavagna",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "lavagna.refreshBoards",
+        "title": "Refresh Boards",
+        "category": "Lavagna",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "lavagna.insertBlock.flow",
+        "title": "Insert Flowchart",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.insertBlock.sequence",
+        "title": "Insert Sequence Diagram",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.insertBlock.tree",
+        "title": "Insert Tree",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.insertBlock.canvas",
+        "title": "Insert Canvas",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.insertBlock.table",
+        "title": "Insert Table",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.insertBlock.spiral",
+        "title": "Insert Spiral ꩜",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.insertFileRef",
+        "title": "Insert File Reference",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.openFileRef",
+        "title": "Open File Reference",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.editBlock",
+        "title": "Edit Block Visually",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.paste",
+        "title": "Paste",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.pasteText",
+        "title": "Paste as Text",
+        "category": "Lavagna"
+      },
+      {
+        "command": "lavagna.installSkill",
+        "title": "Install Skill",
+        "category": "Lavagna",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "lavagna.updateSkill",
+        "title": "Update Skill",
+        "category": "Lavagna",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "lavagna.removeSkill",
+        "title": "Remove Skill",
+        "category": "Lavagna",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "lavagna.refreshSkills",
+        "title": "Refresh Skills",
+        "category": "Lavagna",
+        "icon": "$(refresh)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "lavagna.insertSubmenu",
+        "label": "Lavagna: Insert Block"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "lavagna.deleteBoard",
+          "when": "false"
+        },
+        {
+          "command": "lavagna.editBlock",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.insertBlock.flow",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.insertBlock.tree",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.insertBlock.canvas",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.insertBlock.table",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.insertFileRef",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.openFileRef",
+          "when": "false"
+        },
+        {
+          "command": "lavagna.insertBlock.sequence",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.insertBlock.spiral",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.paste",
+          "when": "false"
+        },
+        {
+          "command": "lavagna.pasteText",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.updateSkill",
+          "when": "false"
+        },
+        {
+          "command": "lavagna.removeSkill",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "lavagna.editBlock",
+          "group": "1_modification@8",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "submenu": "lavagna.insertSubmenu",
+          "group": "1_modification@9",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        },
+        {
+          "command": "lavagna.pasteText",
+          "group": "9_cutcopypaste@30",
+          "when": "resourceFilename =~ /\\.lavagna\\.md$/"
+        }
+      ],
+      "lavagna.insertSubmenu": [
+        {
+          "command": "lavagna.insertBlock.flow",
+          "group": "blocks@1"
+        },
+        {
+          "command": "lavagna.insertBlock.sequence",
+          "group": "blocks@2"
+        },
+        {
+          "command": "lavagna.insertBlock.tree",
+          "group": "blocks@3"
+        },
+        {
+          "command": "lavagna.insertBlock.canvas",
+          "group": "blocks@4"
+        },
+        {
+          "command": "lavagna.insertBlock.table",
+          "group": "blocks@5"
+        },
+        {
+          "command": "lavagna.insertBlock.spiral",
+          "group": "blocks@6"
+        },
+        {
+          "command": "lavagna.insertFileRef",
+          "group": "blocks@7"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "lavagna.installSkill",
+          "group": "navigation@1",
+          "when": "view == lavagna.skills"
+        },
+        {
+          "command": "lavagna.newBoard",
+          "group": "navigation@1",
+          "when": "view == lavagna.boards"
+        },
+        {
+          "command": "lavagna.refreshBoards",
+          "group": "navigation@2",
+          "when": "view == lavagna.boards"
+        },
+        {
+          "command": "lavagna.refreshSkills",
+          "group": "navigation@2",
+          "when": "view == lavagna.skills"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "lavagna.deleteBoard",
+          "group": "inline",
+          "when": "view == lavagna.boards && viewItem == lavagnaBoard"
+        },
+        {
+          "command": "lavagna.installSkill",
+          "group": "inline@1",
+          "when": "view == lavagna.skills && viewItem == lavagnaSkill"
+        },
+        {
+          "command": "lavagna.installSkill",
+          "group": "inline@1",
+          "when": "view == lavagna.skills && viewItem =~ /^lavagnaSkillTarget.*\\.installable/"
+        },
+        {
+          "command": "lavagna.updateSkill",
+          "group": "inline@2",
+          "when": "view == lavagna.skills && viewItem =~ /^lavagnaSkillTarget.*\\.update/"
+        },
+        {
+          "command": "lavagna.removeSkill",
+          "group": "inline@3",
+          "when": "view == lavagna.skills && viewItem =~ /^lavagnaSkillTarget.*\\.present/"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "lavagna.newBoard",
+        "key": "ctrl+alt+l n",
+        "mac": "cmd+alt+l n"
+      },
+      {
+        "command": "lavagna.editBlock",
+        "key": "ctrl+alt+l e",
+        "mac": "cmd+alt+l e",
+        "when": "editorTextFocus && resourceFilename =~ /\\.lavagna\\.md$/"
+      },
+      {
+        "command": "lavagna.paste",
+        "key": "ctrl+v",
+        "mac": "cmd+v",
+        "when": "editorTextFocus && !editorReadonly && resourceFilename =~ /\\.lavagna\\.md$/"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "lavagna",
+          "title": "Lavagna",
+          "icon": "media/spiral.svg"
+        }
+      ]
+    },
+    "views": {
+      "lavagna": [
+        {
+          "id": "lavagna.boards",
+          "name": "Boards"
+        },
+        {
+          "id": "lavagna.skills",
+          "name": "Skills",
+          "visibility": "collapsed"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "lavagna.boards",
+        "contents": "No lavagne yet in this workspace.\n[New Board](command:lavagna.newBoard)\nBoards are markdown files in `.lavagna/` — autocomplete and inline chat work in them."
+      },
+      {
+        "view": "lavagna.skills",
+        "contents": "The bundled skills can't be read — the extension package may be incomplete. Reinstall Lavagna, or add the skill by hand with `npx skills add AyloSrd/lavagna`.",
+        "when": "lavagna.skillsCatalogUnavailable"
+      }
+    ],
+    "configuration": {
+      "title": "Lavagna",
+      "properties": {
+        "lavagna.pasteAsFileReference": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Paste copied code into a board as a file reference (`[@src/foo.ts:12-40](src/foo.ts#L12-L40)`) instead of the raw text. Applies inside `*.lavagna.md` files only, and only when the copy came from a file in the same workspace folder — anything else pastes normally. Turn this off to always paste raw text."
+        },
+        "lavagna.skills.suggestOnFirstBoard": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "After you create your first board, show a prompt offering to install the Lavagna agent skill for the coding agents detected in this workspace — if it isn't installed yet. Offered once: after the first board Lavagna remembers and doesn't ask again. It is only a prompt: nothing is written until you click **Install…** and confirm the scope and agents. *Don't ask again* in the prompt turns it off too."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run typecheck && pnpm run lint && pnpm run build",
+    "build": "node esbuild.js --production",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "compile-tests": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\" && tsc -p tsconfig.test.json",
+    "test:integration": "pnpm run compile-tests && vscode-test",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@lavagna/brand": "workspace:*",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/vscode": "~1.105.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3",
+    "esbuild": "^0.27.3",
+    "eslint": "^9.39.3",
+    "npm-run-all": "^4.1.5",
+    "ovsx": "^0.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^3"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.1",
+    "konva": "^10.3.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-konva": "^19.2.5"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "lavagna",
+  "description": "Agent skills for Lavagna boards — .lavagna.md prompt and plan files edited as a living canvas.",
+  "version": "0.2.0",
+  "author": {
+    "name": "AyloSrd",
+    "url": "https://github.com/AyloSrd"
+  },
+  "homepage": "https://github.com/AyloSrd/lavagna#readme",
+  "repository": "https://github.com/AyloSrd/lavagna",
+  "license": "MIT",
+  "keywords": ["lavagna", "markdown", "planning", "prompts", "mermaid", "vscode", "cursor"]
+}

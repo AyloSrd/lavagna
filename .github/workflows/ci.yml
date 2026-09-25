@@ -1,0 +1,60 @@
+# CI checks and builds. It NEVER publishes, and it must never be given the
+# means to: no GitHub Actions secret may be referenced from this file, no
+# VSCE_PAT/OVSX_PAT, no marketplace step. Releases are cut by hand from a
+# maintainer's machine with tokens that never leave it — see RELEASING.md.
+# `grep -rn "secrets\." .github` must stay empty.
+#
+# `pull_request` (not `pull_request_target`) is deliberate: fork PRs run with a
+# read-only token and reach no secret of ours.
+name: CI
+
+on:
+  # No branch filter: a PR into any branch gets checked, not just ones into main.
+  pull_request:
+  push:
+    branches: [main]
+
+# Nothing here writes to the repository. On `push: main` the token would
+# otherwise be writable for three third-party actions and a 658-package install.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to full commit SHAs (the release is in the trailing
+      # comment); Dependabot (.github/dependabot.yml) proposes bumps.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        # Don't leave the token in .git/config for the install scripts, tests
+        # and actions that follow. Nothing later pushes or fetches: the only git
+        # use after this is a local `git ls-files` (the build and verify-vsix).
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Gates exactly what users receive. `--prod` keeps a mocha-transitive
+      # advisory in the test toolchain from blocking a release that cannot ship it.
+      - name: Audit the production dependency tree
+        run: pnpm audit --prod --audit-level=moderate
+      - name: Typecheck, lint, unit tests, skills check, build
+        run: pnpm turbo run typecheck lint test //#check-skills build
+      - name: Brand assets match packages/brand/exports
+        run: node scripts/check-brand-sync.mjs
+      - name: Integration tests (VS Code under xvfb)
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" pnpm --filter lavagna run test:integration
+      - name: Package the extension (artifact only, not published)
+        run: pnpm --filter lavagna run package
+      # Before the artifact is uploaded anywhere: every entry in the .vsix must
+      # be on the allowlist, and nothing local or secret may have leaked in.
+      - name: Verify the .vsix contents
+        run: pnpm verify-vsix
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: lavagna-vsix
+          path: apps/extension/*.vsix
+          if-no-files-found: error

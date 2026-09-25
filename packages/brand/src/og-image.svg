@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#22272b"/>
+  <g fill="#f2efe9" transform="translate(152 190) scale(1.6)">
+    <!-- build: the placeholder below is substituted with the outline from mark.svg by build.mjs. -->
+    <path transform="scale(0.12)" d="{{MARK_PATH}}"/>
+    <!-- Both strings carry a textLength, so the card's layout is fixed even if the
+         renderer resolves a different face: 417 × 1.6 = 667 units puts the wordmark's
+         right edge at 1056 of 1200, and the tagline spans 1020 centred on 600. -->
+    <text x="148" y="94" font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-weight="600" font-size="100" letter-spacing="0.01em" textLength="417" lengthAdjust="spacingAndGlyphs">Lavagna</text>
+  </g>
+  <text x="600" y="474" text-anchor="middle" font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-weight="400" font-size="40" fill="#f2efe9" fill-opacity="0.72" textLength="1020" lengthAdjust="spacingAndGlyphs">A prompt-writing blackboard for VS Code and Cursor.</text>
+</svg>

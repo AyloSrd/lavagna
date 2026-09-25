@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "out"
+  },
+  // Integration suites only (Mocha, run inside VS Code by @vscode/test-cli).
+  // Their imports pull in the rest of the source. Unit tests under
+  // src/test/domain run with Vitest and are not compiled here.
+  "include": ["src/test/*.test.ts"]
+}
