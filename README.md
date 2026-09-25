@@ -60,3 +60,7 @@ it never publishes. See [RELEASING.md](RELEASING.md).
 
 [MIT](LICENSE). Bundled third-party packages are listed in
 [`apps/extension/THIRD_PARTY_NOTICES.md`](apps/extension/THIRD_PARTY_NOTICES.md).
+
+## Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md).
