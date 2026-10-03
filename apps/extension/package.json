@@ -420,6 +420,6 @@
     "konva": "^10.3.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-konva": "^19.2.5"
+    "react-konva": "^19.3.0"
   }
 }
