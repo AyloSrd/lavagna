@@ -413,7 +413,7 @@
     "ovsx": "^0.10",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
-    "vitest": "^3"
+    "vitest": "^4"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.1",
