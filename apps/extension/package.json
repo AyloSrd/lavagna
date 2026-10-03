@@ -416,7 +416,7 @@
     "vitest": "^4"
   },
   "dependencies": {
-    "@xyflow/react": "^12.11.1",
+    "@xyflow/react": "^12.12.0",
     "konva": "^10.7.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
