@@ -44,7 +44,17 @@ const ALLOWED_FILES = new Set([
  * tracked file missing from the package is a truncated skill.
  */
 const SKILLS_PREFIX = 'extension/skills/';
-const trackedSkills = gitTrackedSkills();
+
+/**
+ * The skills ship only while package.json contributes the Skills view — the
+ * same switch esbuild.js reads. When it doesn't, the package must carry no
+ * skill file at all.
+ */
+const extensionManifest = JSON.parse(readFileSync(join(extDir, 'package.json'), 'utf8'));
+const shipsSkills = Object.values(extensionManifest.contributes?.views ?? {})
+  .flat()
+  .some((view) => view && view.id === 'lavagna.skills');
+const trackedSkills = shipsSkills ? gitTrackedSkills() : new Set();
 
 /** `git ls-files -z -- skills` from the repo root, mapped to their archive paths. */
 function gitTrackedSkills() {
@@ -75,7 +85,7 @@ const REQUIRED_FILES = [
   'extension/package.json',
   'extension/dist/extension.js',
   'extension/media/webview.js',
-  'extension/skills/manifest.json',
+  ...(shipsSkills ? ['extension/skills/manifest.json'] : []),
 ];
 
 // --- what must never ship, allowlist or not ---------------------------------
@@ -111,6 +121,7 @@ function deniedReason(path) {
 function notAllowedReason(path) {
   if (ALLOWED_FILES.has(path)) { return undefined; }
   if (path.startsWith(SKILLS_PREFIX)) {
+    if (!shipsSkills) { return 'NOT SHIPPED (skills are not released: package.json contributes no Skills view)'; }
     return trackedSkills.has(path) ? undefined : `NOT TRACKED (skills/${path.slice(SKILLS_PREFIX.length)} is not in git)`;
   }
   return 'NOT ALLOWED';
@@ -164,7 +175,7 @@ function zipEntries(file) {
 
 // --- locating the package ----------------------------------------------------
 
-const { name, version } = JSON.parse(readFileSync(join(extDir, 'package.json'), 'utf8'));
+const { name, version } = extensionManifest;
 const expected = `${name}-${version}.vsix`;
 const found = readdirSync(extDir).filter((f) => f.endsWith('.vsix'));
 

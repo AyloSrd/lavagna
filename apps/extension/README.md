@@ -190,86 +190,6 @@ Two blocks are deliberately conservative about what they'll touch:
   unsupported target — opens read-only rather than touching the link. (A merely
   *missing* local file gets the chooser instead, so you can pick a replacement.)
 
-## Agent skills
-
-Lavagna ships the agent skills that teach a coding agent how to work with
-boards — the `lavagna` skill and any others listed in the bundle. They live
-at the foot of the Lavagna panel: under the boards list sits a collapsed
-**Skills** line with an **Install skill** button on it. Click the button to
-install one; click the line to expand it and see every skill with its bundled
-version and, for each supported agent, whether it is installed, out of date,
-or absent — in each of two scopes.
-
-**Nothing is installed until you click.** Opening the view only reads. Every
-write goes through an explicit action: the **Install skill** button on a skill
-row, or **Install** / **Update** / **Remove** on an agent row.
-
-Installing asks two questions, then copies the skill folder (never a symlink):
-
-1. **Scope** — *Global*: once per machine, under your home folder, available in
-   every project (recommended). *This workspace*: inside the open folder, so
-   teammates get it through git. A scope with nowhere to write is not offered,
-   and the picker says why. (When the window has several folders open, you are
-   asked which one first.)
-2. **Agents** — a multi-select of the agents below. The ones detected from the
-   editor (Cursor, Windsurf), installed extensions (Claude Code, Codex, Copilot
-   Chat, Gemini Code Assist) and workspace markers (`CLAUDE.md`, `.cursor/`,
-   `AGENTS.md`, …) are pre-checked; detection is only a hint and you can change
-   the selection. Each entry shows the exact folder it would write to.
-
-If a folder Lavagna can't recognise as its own copy of the skill is already at
-one of those destinations — one with no `SKILL.md`, one whose `SKILL.md` names
-another skill or carries no readable version, so a skill you wrote by hand or
-one another tool put there — a modal names every such folder and asks before
-anything is replaced. Only a destination where nothing exists yet is written
-without asking. *Skip these* installs the rest; dismissing it installs nothing.
-A destination that is a symbolic link is never installed over at all, and
-nothing is written or removed through a symbolic link inside the workspace — a
-repository could commit `.agents/skills` as a link to anywhere. Under your home
-folder a linked folder (a dotfile-managed `~/.claude`, say) is fine as long as
-it really resolves inside your home.
-
-Where the files land, per agent:
-
-| Agent | This workspace | Global |
-| --- | --- | --- |
-| Claude Code | `.claude/skills/` | `~/.claude/skills/` |
-| Cursor | `.agents/skills/` | `~/.cursor/skills/` |
-| Codex | `.agents/skills/` | `~/.codex/skills/` |
-| GitHub Copilot | `.agents/skills/` | `~/.copilot/skills/` |
-| Gemini CLI | `.agents/skills/` | `~/.gemini/skills/` |
-| Other agents (`.agents`) | `.agents/skills/` | `~/.agents/skills/` |
-
-Several agents read the same `.agents/skills/` folder at workspace scope; the
-skill is written once per distinct folder, and the view shows it as installed
-for every agent that reads it — and the result message names the folders it
-wrote, not the agents you ticked. A destination already holding the same
-version is left alone; an older copy is replaced — that is also what **Update**
-does. **Remove** confirms first, then deletes the skill's folder for that agent
-in every scope where it exists; at workspace scope it goes to the trash. State
-comes from the `name` and `metadata.version` in each installed `SKILL.md`, so
-a copy installed by other means is recognised too — and a folder that isn't a
-recognisable copy is never replaced without the confirmation above.
-
-Two limits, declared in the extension manifest:
-
-- **Virtual workspaces** (`vscode-vfs://…`) have no workspace scope — the files
-  would have to land on a local disk that has nothing to do with them. Global
-  scope still works, and so does everything else in Lavagna.
-- **Restricted Mode.** Skills are only installed into a trusted workspace. The
-  workspace scope is not offered until you trust the folder.
-
-After you create your first board, Lavagna may show a one-line prompt offering
-to install its core skill for the agents it detected — only if the skill isn't
-installed anywhere yet, and never after *Don't ask again*. It is offered once:
-after the first board, Lavagna remembers and does not ask again. The prompt
-writes nothing itself: *Install…* just opens the flow above.
-`lavagna.skills.suggestOnFirstBoard: false` turns it off.
-
-The same skills are available outside the extension: as a Claude Code plugin
-via `/plugin marketplace add AyloSrd/lavagna`, or for any agent with
-`npx skills add AyloSrd/lavagna`.
-
 ## Commands and shortcuts
 
 | Command | Shortcut | Where |
@@ -280,9 +200,6 @@ via `/plugin marketplace add AyloSrd/lavagna`, or for any agent with
 | Paste as file reference | `Cmd+V` / `Ctrl+V` | In a board, when the copy source is known |
 | Lavagna: Paste as Text | — | Editor context menu, command palette |
 | Lavagna: Delete Board / Refresh Boards | — | Boards view |
-| Lavagna: Install Skill | — | Skills view (skill rows, and agent rows not yet installed everywhere), command palette |
-| Lavagna: Update Skill / Remove Skill | — | Skills view, agent rows — Update only when an older copy is installed, Remove only when something is |
-| Lavagna: Refresh Skills | — | Skills view title bar |
 
 `Edit Block Visually` invoked from the keyboard targets the block under the
 cursor. Insert and edit commands only appear on `*.lavagna.md` files.
@@ -306,8 +223,8 @@ src/
     blocks/               fence/table/image parser, block ranges, block-edit computation
     boards/               board naming, slugs, file names, template
     references/           file-reference format/parse, fuzzy path matcher
-    skills/               agent targets + detection rules, frontmatter/semver, install plan and state,
-                          and the path-segment validator every install destination goes through
+    skills/               agent targets + detection rules, frontmatter/semver, install plan and state
+                          (built, not shipped yet — see below)
   application/
     ports/                BoardRepositoryPort, MediaPort, SkillCatalogPort, SkillFilesPort, AgentDetectionPort
     usecases/             create / list / delete board; list / install / update / remove skill
@@ -339,13 +256,15 @@ bundles: `dist/extension.js` (Node) and `media/webview.js` (browser).
 ## Development
 
 This package lives in the [Lavagna monorepo](https://github.com/AyloSrd/lavagna)
-under `apps/extension/`; the agent skills it bundles come from the repo's
-`skills/` folder and are copied in at build time.
+under `apps/extension/`. The agent-skills feature (a Skills view that installs
+the repo's `skills/` for coding agents) is built but not released yet: the
+package contributes none of it, and the build copies `skills/` in only once
+`package.json` contributes the `lavagna.skills` view again.
 
 ```bash
 pnpm install                          # at the repo root
 pnpm check                            # type-check + lint + unit tests (Vitest)
-pnpm build                            # both bundles + skills copy
+pnpm build                            # both bundles
 pnpm test:integration                 # Mocha suites inside VS Code
 pnpm dev                              # watch mode, then F5 to launch the Extension Development Host
 ```

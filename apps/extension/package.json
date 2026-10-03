@@ -2,7 +2,7 @@
   "name": "lavagna",
   "displayName": "Lavagna",
   "description": "Write structured prompts and plans in markdown, with visual editors for mermaid flowcharts, trees, tables and drawings.",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "publisher": "aylosrd",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -29,7 +29,6 @@
   },
   "categories": [
     "Visualization",
-    "Notebooks",
     "Other"
   ],
   "galleryBanner": {
@@ -42,17 +41,6 @@
     "workspaceContains:**/*.lavagna.md"
   ],
   "main": "./dist/extension.js",
-  "capabilities": {
-    "virtualWorkspaces": {
-      "supported": "limited",
-      "description": "Boards and blocks work anywhere. Skills can only be installed into a local folder, so the workspace scope is unavailable in a virtual workspace."
-    },
-    "untrustedWorkspaces": {
-      "supported": "limited",
-      "restrictedConfigurations": [],
-      "description": "Skills can only be installed into trusted workspaces."
-    }
-  },
   "contributes": {
     "commands": [
       {
@@ -127,30 +115,6 @@
         "command": "lavagna.pasteText",
         "title": "Paste as Text",
         "category": "Lavagna"
-      },
-      {
-        "command": "lavagna.installSkill",
-        "title": "Install Skill",
-        "category": "Lavagna",
-        "icon": "$(cloud-download)"
-      },
-      {
-        "command": "lavagna.updateSkill",
-        "title": "Update Skill",
-        "category": "Lavagna",
-        "icon": "$(arrow-up)"
-      },
-      {
-        "command": "lavagna.removeSkill",
-        "title": "Remove Skill",
-        "category": "Lavagna",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "lavagna.refreshSkills",
-        "title": "Refresh Skills",
-        "category": "Lavagna",
-        "icon": "$(refresh)"
       }
     ],
     "submenus": [
@@ -208,14 +172,6 @@
         {
           "command": "lavagna.pasteText",
           "when": "resourceFilename =~ /\\.lavagna\\.md$/"
-        },
-        {
-          "command": "lavagna.updateSkill",
-          "when": "false"
-        },
-        {
-          "command": "lavagna.removeSkill",
-          "when": "false"
         }
       ],
       "editor/context": [
@@ -267,11 +223,6 @@
       ],
       "view/title": [
         {
-          "command": "lavagna.installSkill",
-          "group": "navigation@1",
-          "when": "view == lavagna.skills"
-        },
-        {
           "command": "lavagna.newBoard",
           "group": "navigation@1",
           "when": "view == lavagna.boards"
@@ -280,11 +231,6 @@
           "command": "lavagna.refreshBoards",
           "group": "navigation@2",
           "when": "view == lavagna.boards"
-        },
-        {
-          "command": "lavagna.refreshSkills",
-          "group": "navigation@2",
-          "when": "view == lavagna.skills"
         }
       ],
       "view/item/context": [
@@ -292,26 +238,6 @@
           "command": "lavagna.deleteBoard",
           "group": "inline",
           "when": "view == lavagna.boards && viewItem == lavagnaBoard"
-        },
-        {
-          "command": "lavagna.installSkill",
-          "group": "inline@1",
-          "when": "view == lavagna.skills && viewItem == lavagnaSkill"
-        },
-        {
-          "command": "lavagna.installSkill",
-          "group": "inline@1",
-          "when": "view == lavagna.skills && viewItem =~ /^lavagnaSkillTarget.*\\.installable/"
-        },
-        {
-          "command": "lavagna.updateSkill",
-          "group": "inline@2",
-          "when": "view == lavagna.skills && viewItem =~ /^lavagnaSkillTarget.*\\.update/"
-        },
-        {
-          "command": "lavagna.removeSkill",
-          "group": "inline@3",
-          "when": "view == lavagna.skills && viewItem =~ /^lavagnaSkillTarget.*\\.present/"
         }
       ]
     },
@@ -348,11 +274,6 @@
         {
           "id": "lavagna.boards",
           "name": "Boards"
-        },
-        {
-          "id": "lavagna.skills",
-          "name": "Skills",
-          "visibility": "collapsed"
         }
       ]
     },
@@ -360,11 +281,6 @@
       {
         "view": "lavagna.boards",
         "contents": "No lavagne yet in this workspace.\n[New Board](command:lavagna.newBoard)\nBoards are markdown files in `.lavagna/` — autocomplete and inline chat work in them."
-      },
-      {
-        "view": "lavagna.skills",
-        "contents": "The bundled skills can't be read — the extension package may be incomplete. Reinstall Lavagna, or add the skill by hand with `npx skills add AyloSrd/lavagna`.",
-        "when": "lavagna.skillsCatalogUnavailable"
       }
     ],
     "configuration": {
@@ -374,11 +290,6 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Paste copied code into a board as a file reference (`[@src/foo.ts:12-40](src/foo.ts#L12-L40)`) instead of the raw text. Applies inside `*.lavagna.md` files only, and only when the copy came from a file in the same workspace folder — anything else pastes normally. Turn this off to always paste raw text."
-        },
-        "lavagna.skills.suggestOnFirstBoard": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "After you create your first board, show a prompt offering to install the Lavagna agent skill for the coding agents detected in this workspace — if it isn't installed yet. Offered once: after the first board Lavagna remembers and doesn't ask again. It is only a prompt: nothing is written until you click **Install…** and confirm the scope and agents. *Don't ask again* in the prompt turns it off too."
         }
       }
     }

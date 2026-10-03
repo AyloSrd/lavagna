@@ -1,6 +1,21 @@
 # Change Log
 
-## Unreleased
+## 0.2.0
+
+First release on the VS Code Marketplace and Open VSX.
+
+### Changed
+
+- New icon and activity-bar mark: the ꩜ spiral, in chalk on a slate tile.
+- Dependency updates, among them konva 10.7, react-konva 19.3 and
+  @xyflow/react 12.12 in the editors, and esbuild 0.28 in the build.
+- The Marketplace categories no longer include *Notebooks*.
+
+<!--
+Not released yet. The agent-skills feature below is built and tested but not
+shipped: package.json contributes none of it and the build bundles no skills
+(see the comment at the top of src/extension.ts). Move these notes into the
+release that turns it on.
 
 ### Added
 
@@ -34,6 +49,7 @@
   (skills need a local folder, so a `vscode-vfs://` workspace offers only the
   global scope), and `untrustedWorkspaces` is *limited* — skills are only
   installed into a trusted workspace.
+-->
 
 ## 0.1.5
 
