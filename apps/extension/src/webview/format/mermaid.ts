@@ -75,7 +75,13 @@ export const SHAPE_LABELS: Record<MermaidShape, string> = {
 
 /** Mermaid disallows raw quotes/newlines inside quoted labels. */
 function esc(label: string): string {
-  return label.replace(/"/g, '&quot;').replace(/\s*\n\s*/g, ' ').trim();
+  // A whitespace run that holds a newline collapses to one space; runs without
+  // one are kept. (`/\s*\n\s*/g` says the same but is quadratic on a long run
+  // of spaces with no newline, which a hand-written label can be.)
+  return label
+    .replace(/"/g, '&quot;')
+    .replace(/\s+/g, (run) => (run.includes('\n') ? ' ' : run))
+    .trim();
 }
 
 function unesc(label: string): string {

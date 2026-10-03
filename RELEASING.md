@@ -57,9 +57,13 @@ and must never be given one.
    ```
 
    `pnpm check-vsix` prints every entry in the archive and fails if anything is
-   outside the allowlist in `scripts/check-vsix.mjs`, or if the bundled skills
+   outside the allowlist in `scripts/check-vsix.mjs`, if the bundled skills
    are not exactly the files `git ls-files skills` lists (the build copies only
-   those, so an uncommitted draft in `/skills` never ships). **Read the list.** The
+   those, so an uncommitted draft in `/skills` never ships; while the skills
+   feature is unreleased, any skill file fails), if a text file inside contains
+   a local path, a token, a private key, a source-map link or an unexpected
+   email address, or if any other `.vsix` sits in `apps/extension` (delete old
+   builds so a stale one is never uploaded by mistake). **Read the list.** The
    `.vsix` goes to the Marketplace and Open VSX: public, and for practical
    purposes permanent. Before publishing, confirm by eye that there is no
    `.env`, no `.lavagna/` board, no `.claude/`, `.vscode/` or `.cursor/`

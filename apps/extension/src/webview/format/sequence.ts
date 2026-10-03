@@ -111,11 +111,47 @@ const BLOCK_KEYWORDS = ['loop', 'alt', 'else', 'opt', 'par', 'and', 'critical', 
 const UNSUPPORTED = /^(box\b|end box\b|link\b|links\b|properties\b|create\b|destroy\b|rect\b|style\b|classDef\b|accTitle\b|accDescr\b)/i;
 
 const ID = '[A-Za-z0-9_]+';
-const PARTICIPANT_RE = new RegExp(`^(participant|actor)\\s+(${ID})(?:\\s+as\\s+(.+))?$`, 'i');
-const NOTE_RE = new RegExp(`^note\\s+(over|left of|right of)\\s+([A-Za-z0-9_,\\s]+?)\\s*:\\s*(.*)$`, 'i');
+// Line patterns must stay linear on a long line of attacker-chosen whitespace:
+// `\s*` or `\s+` directly followed by something that can ALSO match whitespace
+// (`.`, `[…\s]`) is ambiguous, and when the match then fails — a stray `\r` or
+// U+2028 that `.` won't cross, a missing `:` — the engine retries every split
+// of the run, which is quadratic (cubic with two runs). So a trailing free-text
+// capture always starts with `\S`, which makes the preceding whitespace run
+// unambiguous; it matches the same lines and captures the same text, because
+// the greedy whitespace run already took everything `.` could have started on.
+const PARTICIPANT_RE = new RegExp(`^(participant|actor)\\s+(${ID})(?:\\s+as\\s+(\\S.*))?$`, 'i');
+const NOTE_HEAD_RE = /^note\s+(over|left of|right of)\s+/i;
+const NOTE_ACTORS_RE = /^[A-Za-z0-9_,\s]+$/;
+const TITLE_RE = /^title(?:\s*:)?\s*(\S.*)$/i;
+const BLOCK_RE = new RegExp(`^(${BLOCK_KEYWORDS.join('|')})\\b\\s*(\\S.*)?$`, 'i');
 const ACTIVATION_RE = new RegExp(`^(activate|deactivate)\\s+(${ID})$`, 'i');
 const MAX_FENCE_BYTES = 100_000;
 const MAX_STEPS = 2000;
+
+/**
+ * `Note over A,B: text` → its placement, actor list and text; null when the line
+ * isn't a note. Done in steps rather than one regex
+ * (`note\s+(…)\s+([A-Za-z0-9_,\s]+?)\s*:\s*(.*)`) because that pattern's lazy
+ * actor list next to `\s*:` was quadratic on a long run of whitespace.
+ */
+function matchNote(line: string): { placement: string; actors: string; text: string } | null {
+  const head = NOTE_HEAD_RE.exec(line);
+  if (!head) {
+    return null;
+  }
+  const rest = line.slice(head[0].length);
+  const colon = rest.indexOf(':'); // not in the actor alphabet, so the first one ends the list
+  if (colon < 0) {
+    return null;
+  }
+  const actors = rest.slice(0, colon).trimEnd();
+  const text = rest.slice(colon + 1).trimStart();
+  // `.` never matched a line terminator, so a note whose text holds one isn't a note.
+  if (!NOTE_ACTORS_RE.test(actors) || /[\n\r\u2028\u2029]/.test(text)) {
+    return null;
+  }
+  return { placement: head[1], actors, text };
+}
 
 /** Split `A->>+B: text` into its parts. Null when the line isn't a message. */
 function parseMessage(line: string): MessageStep | null {
@@ -195,7 +231,7 @@ export function parseSequence(text: string): SequenceData | null {
       data.autonumber = true;
       continue;
     }
-    const title = /^title\s*:?\s*(.+)$/i.exec(line);
+    const title = TITLE_RE.exec(line);
     if (title && !line.includes('->')) {
       data.title = title[1].trim();
       continue;
@@ -221,9 +257,9 @@ export function parseSequence(text: string): SequenceData | null {
       continue;
     }
 
-    const note = NOTE_RE.exec(line);
+    const note = matchNote(line);
     if (note) {
-      const actors = note[2]
+      const actors = note.actors
         .split(',')
         .map((a) => a.trim())
         .filter(Boolean);
@@ -233,9 +269,9 @@ export function parseSequence(text: string): SequenceData | null {
       actors.forEach(ensureParticipant);
       data.steps.push({
         type: 'note',
-        placement: note[1].toLowerCase() as NoteStep['placement'],
+        placement: note.placement.toLowerCase() as NoteStep['placement'],
         actors,
-        text: note[3].trim(),
+        text: note.text.trim(),
       });
       continue;
     }
@@ -251,12 +287,12 @@ export function parseSequence(text: string): SequenceData | null {
       data.steps.push({ type: 'end' });
       continue;
     }
-    const block = new RegExp(`^(${BLOCK_KEYWORDS.join('|')})\\b\\s*(.*)$`, 'i').exec(line);
+    const block = BLOCK_RE.exec(line);
     if (block) {
       data.steps.push({
         type: 'block',
         keyword: block[1].toLowerCase() as BlockStep['keyword'],
-        label: block[2].trim(),
+        label: (block[2] ?? '').trim(),
       });
       continue;
     }

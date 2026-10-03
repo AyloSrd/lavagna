@@ -6,15 +6,97 @@
 
 import { BlockKind, LavagnaBlock } from './types';
 
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+// `(?!…)` pins the fence run to its full length. Without it a line of N
+// backticks followed by a `\r` (which `.` won't cross, so the match fails)
+// retried the `(.*)` tail from every shorter run length — quadratic. Shorter
+// runs could never have matched anyway: their tail would only be longer.
+const FENCE_OPEN = /^ {0,3}(`{3,}(?!`)|~{3,}(?!~))(.*)$/;
 const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 // A line that is exactly one markdown image: `![alt](target)` or `![alt](target "title")`.
 // The target may be EMPTY — `![canvas]()` is how a canvas with no image yet is
 // written, and the editor opens it on the blank/upload chooser.
-// `[ \t]*` rather than `\s*`: three adjacent unbounded whitespace runs before a
-// `\)` that can fail is quadratic to backtrack, and a single crafted line was
-// enough to stall every consumer (they re-parse on each keystroke).
-const IMAGE_LINE = /^ {0,3}!\[[^\]]*\]\([ \t]*([^)\s]*)(?:[ \t]+"[^"]*")?[ \t]*\)[ \t]*$/;
+//
+// This used to be one regex, `^ {0,3}!\[[^\]]*\]\([ \t]*([^)\s]*)(?:[ \t]+"[^"]*")?[ \t]*\)[ \t]*$`.
+// Its whitespace runs overlap (`[ \t]*` before an empty target, `[ \t]+` in the
+// title group, `[ \t]*` before `)`), so a single crafted line —
+// `![a](` + 100k spaces + `x"` — cost seconds of backtracking, and every
+// consumer re-parses on each keystroke. It is now a hand-written, strictly
+// linear matcher that accepts exactly the same lines and returns exactly the
+// same capture (the test suite checks that exhaustively against the old regex),
+// behind a length cap that no real image line comes near.
+const MAX_IMAGE_LINE_LENGTH = 2048;
+
+const isBlank = (ch: string | undefined): boolean => ch === ' ' || ch === '\t';
+const NOT_PAREN_OR_SPACE = /[^)\s]*/y; // the target: any run of non-`)`, non-whitespace
+
+/** Index of the first char at or after `from` that is not a space or tab. */
+function skipBlanks(s: string, from: number): number {
+  let i = from;
+  while (isBlank(s[i])) {
+    i++;
+  }
+  return i;
+}
+
+/** Whether `s` from `from` is `[ \t]* ) [ \t]* <end>`. */
+function closesWithParen(s: string, from: number): boolean {
+  const i = skipBlanks(s, from);
+  return s[i] === ')' && skipBlanks(s, i + 1) === s.length;
+}
+
+/**
+ * Whether `s` from `at` (which must hold the opening `"`) is
+ * `"title" [ \t]* ) [ \t]* <end>`. The title runs to the next `"`.
+ */
+function closesWithTitle(s: string, at: number): boolean {
+  const close = s.indexOf('"', at + 1);
+  return close !== -1 && closesWithParen(s, close + 1);
+}
+
+/**
+ * The image target of a standalone image line (`''` for `![alt]()`), or null
+ * when the line isn't one.
+ */
+function matchImageLine(line: string): string | null {
+  if (line.length > MAX_IMAGE_LINE_LENGTH) {
+    return null;
+  }
+  let i = 0;
+  while (i < 3 && line[i] === ' ') {
+    i++;
+  }
+  if (line[i] !== '!' || line[i + 1] !== '[') {
+    return null;
+  }
+  const closeBracket = line.indexOf(']', i + 2); // `[^\]]*` runs to the first `]`
+  if (closeBracket === -1 || line[closeBracket + 1] !== '(') {
+    return null;
+  }
+  const start = closeBracket + 2;
+
+  // Preferred reading: all leading blanks are padding, the target is the
+  // longest run after them, and an optional ` "title"` may follow it.
+  const afterPad = skipBlanks(line, start);
+  NOT_PAREN_OR_SPACE.lastIndex = afterPad;
+  const targetEnd = afterPad + (NOT_PAREN_OR_SPACE.exec(line)?.[0].length ?? 0);
+  // The title needs at least one blank between it and the target, which itself
+  // may contain quotes (`![a](x"y")` has the target `x"y"`).
+  const titleAt = skipBlanks(line, targetEnd);
+  if (
+    closesWithParen(line, targetEnd) ||
+    (titleAt > targetEnd && line[titleAt] === '"' && closesWithTitle(line, titleAt))
+  ) {
+    return line.slice(afterPad, targetEnd);
+  }
+
+  // Fallback, reachable only when the line starts `( "…`: the target is empty
+  // and the blanks belong to the title group, so `]( "a b")` is an image with
+  // no target (whereas `]("a b")` is not an image at all).
+  if (afterPad > start && line[afterPad] === '"' && closesWithTitle(line, afterPad)) {
+    return '';
+  }
+  return null;
+}
 
 const KIND_BY_LANGUAGE: Record<string, BlockKind> = {
   mermaid: 'mermaid',
@@ -26,7 +108,7 @@ const KIND_BY_LANGUAGE: Record<string, BlockKind> = {
  * isn't one, `''` if it is an image line with no target yet.
  */
 export function imageTarget(line: string): string | null {
-  return line.match(IMAGE_LINE)?.[1] ?? null;
+  return matchImageLine(line);
 }
 
 /** Local images are drawable; remote/data URIs are not. */
@@ -97,8 +179,8 @@ export function parseBlocks(text: string): LavagnaBlock[] {
       continue;
     }
 
-    const image = line.match(IMAGE_LINE);
-    if (image && isLocalTarget(image[1])) {
+    const imageSrc = matchImageLine(line);
+    if (imageSrc !== null && isLocalTarget(imageSrc)) {
       push({
         kind: 'image',
         language: null,
@@ -129,7 +211,7 @@ export function parseBlocks(text: string): LavagnaBlock[] {
           next.trim() === '' ||
           !next.includes('|') ||
           FENCE_OPEN.test(next) ||
-          IMAGE_LINE.test(next)
+          matchImageLine(next) !== null
         ) {
           break;
         }

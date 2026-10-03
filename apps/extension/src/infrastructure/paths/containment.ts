@@ -59,3 +59,22 @@ export async function isContainedIn(uri: vscode.Uri, roots: readonly vscode.Uri[
 export function workspaceRoots(): vscode.Uri[] {
   return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri);
 }
+
+/**
+ * Whether `uri` is a place inside the open workspace that is safe to read:
+ * lexically below a workspace folder (the platform-aware check VS Code itself
+ * uses — no filesystem access, so a `file://host/share/…` or a drive the
+ * workspace never mentioned is never touched), and, for a local folder, really
+ * inside it once symlinks are resolved. Other schemes (`vscode-vfs://…`) name
+ * providers with no symlinks, and their `fsPath` is not a local path, so the
+ * lexical check is all there is.
+ */
+export async function isInsideWorkspace(uri: vscode.Uri): Promise<boolean> {
+  if (!vscode.workspace.getWorkspaceFolder(uri)) {
+    return false;
+  }
+  if (uri.scheme !== 'file') {
+    return true;
+  }
+  return isContainedIn(uri, workspaceRoots());
+}

@@ -4,8 +4,11 @@ import * as vscode from 'vscode';
 import { MediaPort } from '../application/ports/MediaPort';
 import { imageTarget } from '../domain/blocks/parseBlocks';
 import { LavagnaBlock } from '../domain/blocks/types';
+import { MAX_IMAGE_BYTES, sniffImageType } from '../domain/media/imageType';
 import { isSafeRelativePath } from '../domain/references/safePath';
+import { log } from '../infrastructure/logging/log';
 import { blankCanvasBytes } from '../infrastructure/media/blankCanvas';
+import { isInsideWorkspace } from '../infrastructure/paths/containment';
 import {
   BlockKind,
   BlockMeta,
@@ -15,16 +18,13 @@ import {
 } from '../shared/messages';
 import { BlockSessionTracker } from './BlockSessionTracker';
 import { KIND_LABEL } from './selectors';
+import { MAX_IMAGE_BASE64_CHARS, parseWebviewMessage } from './webviewMessages';
 
 export interface BlockEditorDeps {
   extensionUri: vscode.Uri;
   media: MediaPort;
   workspaceRoot?: vscode.Uri;
 }
-
-/** A flattened canvas is a PNG of a bounded stage; refuse anything absurd. */
-const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
-const MAX_CLIPBOARD_CHARS = 100_000;
 
 interface Session {
   token: string;
@@ -61,8 +61,9 @@ export class BlockEditorPanel {
     // The workspace stays a resource root: image blocks legitimately reference
     // images anywhere in the repo, and a board need not live in `.lavagna/`.
     // What used to make that dangerous is now closed at both ends — image
-    // targets must be relative and traversal-free (`_imageFileUri`), and
-    // `script-src` is nonce-based rather than allowing every file under a root.
+    // targets must be relative, traversal-free and really inside the workspace
+    // once symlinks are resolved (`_imageFileUri`), and `script-src` is
+    // nonce-based rather than allowing every file under a root.
     const localResourceRoots = [vscode.Uri.joinPath(_deps.extensionUri, 'media')];
     if (_deps.workspaceRoot) {
       localResourceRoots.push(_deps.workspaceRoot);
@@ -79,7 +80,14 @@ export class BlockEditorPanel {
       // Serialized: each handler applies a WorkspaceEdit computed from the
       // document's current text, so two in flight at once would let the second
       // compute its range against pre-edit text and clobber the first.
-      (msg: WebviewToHost) => {
+      (raw: unknown) => {
+        // Nothing from the page is trusted to have the shape the protocol says.
+        const parsed = parseWebviewMessage(raw);
+        if (!parsed.ok) {
+          log(`webview message ignored: ${parsed.reason}`);
+          return;
+        }
+        const msg = parsed.msg;
         this._queue = this._queue.then(
           () => this._handleMessage(msg),
           // Never let one rejection poison the chain for every later message.
@@ -128,10 +136,11 @@ export class BlockEditorPanel {
   /** block.update always carries the freshly resolved image URI and state. */
   private async _postUpdate(token: string, content: string): Promise<void> {
     const imageState = await this._imageState();
+    const imageUri = await this._imageUri();
     if (this._session?.token !== token) {
       return; // retargeted meanwhile
     }
-    this._post({ type: 'block.update', token, content, imageUri: this._imageUri(), imageState });
+    this._post({ type: 'block.update', token, content, imageUri, imageState });
   }
 
   private async _postInit(): Promise<void> {
@@ -143,26 +152,27 @@ export class BlockEditorPanel {
     if (this._session !== session) {
       return; // retargeted while stat-ing the image
     }
-    const mediaBaseUri = this._deps.workspaceRoot
-      ? this._panel.webview.asWebviewUri(this._deps.workspaceRoot).toString()
-      : null;
+    const imageUri = await this._imageUri();
+    if (this._session !== session) {
+      return; // retargeted while resolving the image
+    }
     this._post({
       type: 'block.init',
       token: session.token,
       kind: session.kind,
       content: session.tracker.currentContent(),
       meta: session.meta,
-      mediaBaseUri,
-      imageUri: this._imageUri(),
+      imageUri,
       imageState,
     });
   }
 
   /**
    * For image blocks: the absolute Uri of the block's image target. Null when
-   * the block isn't an image, has no target yet, or points somewhere remote.
+   * the block isn't an image, has no target yet, points somewhere remote, or
+   * names a file that is not really inside the workspace.
    */
-  private _imageFileUri(): vscode.Uri | null {
+  private async _imageFileUri(): Promise<vscode.Uri | null> {
     const session = this._session;
     if (!session || session.kind !== 'image') {
       return null;
@@ -179,12 +189,20 @@ export class BlockEditorPanel {
       return null;
     }
     const abs = vscode.Uri.joinPath(session.document.uri, '..', target);
-    return abs.authority ? null : abs;
+    // The string check can't see a symlink: git can commit `docs/shot.png` as a
+    // link to `~/.ssh/id_rsa`, and the webview (a resource root covers the whole
+    // workspace) would load it — and the canvas could then flatten it into
+    // `.lavagna/media/`. Resolve what is really there; a file that is not inside
+    // the workspace gets no URI, so the canvas opens on its read-only fallback.
+    if (!(await isInsideWorkspace(abs))) {
+      return null;
+    }
+    return abs;
   }
 
   /** For image blocks: the block's image target resolved to a webview URI. */
-  private _imageUri(): string | null {
-    const abs = this._imageFileUri();
+  private async _imageUri(): Promise<string | null> {
+    const abs = await this._imageFileUri();
     return abs ? this._panel.webview.asWebviewUri(abs).toString() : null;
   }
 
@@ -201,9 +219,9 @@ export class BlockEditorPanel {
     if (imageTarget(session.tracker.currentContent().trim()) === '') {
       return 'empty';
     }
-    const abs = this._imageFileUri();
+    const abs = await this._imageFileUri();
     if (!abs) {
-      return 'present'; // remote/data image — not drawable, handled by the editor
+      return 'present'; // remote/data/out-of-workspace image — not drawable, handled by the editor
     }
     try {
       await vscode.workspace.fs.stat(abs);
@@ -300,6 +318,11 @@ export class BlockEditorPanel {
         }
         try {
           const bytes = decodeBase64(msg.dataBase64);
+          // Written as `.png`, so it must be one: the page is not trusted to
+          // send what the file name will claim.
+          if (sniffImageType(bytes) !== 'png') {
+            throw new Error('The canvas did not produce a PNG image.');
+          }
           await this._relinkImage(session, bytes, 'png', msg.alt);
         } catch (err) {
           this._post({
@@ -332,8 +355,26 @@ export class BlockEditorPanel {
               fail(); // plain cancel — no message, so the webview shows no error
               break;
             }
+            // Size first, so a multi-gigabyte pick is never read into memory.
+            const stat = await vscode.workspace.fs.stat(picked[0]);
+            // A FIFO or a device (`/dev/zero`) reports size 0 and would hang
+            // `readFile`; a link to a regular file is fine — the user picked it.
+            if ((stat.type & vscode.FileType.File) === 0) {
+              throw new Error('Choose an image file.');
+            }
+            if (stat.size > MAX_IMAGE_BYTES) {
+              throw new Error('That image is too large to use (the limit is 32 MB).');
+            }
             bytes = await vscode.workspace.fs.readFile(picked[0]);
-            ext = path.extname(picked[0].fsPath).slice(1).toLowerCase() || 'png';
+            // The picker's filter is only a filter ("All files" is one click
+            // away), and an extension is only a name. What goes under
+            // `.lavagna/media/` is decided by the bytes: PNG, JPEG, GIF, WebP
+            // or BMP — never SVG, which is script-capable markup.
+            const type = bytes.byteLength > MAX_IMAGE_BYTES ? null : sniffImageType(bytes);
+            if (!type) {
+              throw new Error('That file is not a PNG, JPEG, GIF, WebP or BMP image.');
+            }
+            ext = type;
           } else {
             bytes = await blankCanvasBytes(this._deps.extensionUri);
           }
@@ -351,7 +392,7 @@ export class BlockEditorPanel {
         if (!this._session || msg.token !== this._session.token) {
           break;
         }
-        await vscode.env.clipboard.writeText(msg.text.slice(0, MAX_CLIPBOARD_CHARS));
+        await vscode.env.clipboard.writeText(msg.text);
         vscode.window.showInformationMessage(`Lavagna: ${msg.label ?? 'Copied to clipboard'}`);
         break;
       }
@@ -394,7 +435,7 @@ export class BlockEditorPanel {
 
 /** Decode a base64 payload, refusing absurd sizes before allocating. */
 function decodeBase64(dataBase64: string): Uint8Array {
-  if (dataBase64.length > MAX_IMAGE_BYTES / 3 * 4) {
+  if (dataBase64.length > MAX_IMAGE_BASE64_CHARS) {
     throw new Error('Image is too large to save.');
   }
   const bytes = new Uint8Array(Buffer.from(dataBase64, 'base64'));

@@ -1,13 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   INDENT_UNIT,
-  connectorPrefix,
+  connectorPrefixes,
   depthOf,
   fromAscii,
+  isTreeTooLarge,
   nameOf,
   toAscii,
 } from '../format/treeFormat';
 import type { EditorProps } from '../BlockEditorApp';
+import { ReadOnlyFallback } from './ReadOnlyFallback';
 
 // One editable field per line: a non-editable connector prefix beside a plain
 // <input> that holds only the node name. Connectors and the caret's text live
@@ -48,7 +50,10 @@ const MONO: React.CSSProperties = {
 };
 
 export function TreeEditor({ value, onChange, onGestureEnd }: EditorProps) {
-  const [text, setText] = useState<string>(() => fromAscii(value));
+  // Past the size cap the tree opens read-only (as the table / flowchart /
+  // sequence editors do); the model is never built for it.
+  const [tooLarge, setTooLarge] = useState(() => isTreeTooLarge(value));
+  const [text, setText] = useState<string>(() => (isTreeTooLarge(value) ? '' : fromAscii(value)));
   const [hovered, setHovered] = useState<number | null>(null);
   const [errorLines, setErrorLines] = useState<Set<number>>(() => new Set());
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
@@ -59,7 +64,9 @@ export function TreeEditor({ value, onChange, onGestureEnd }: EditorProps) {
   useEffect(() => {
     if (value !== lastWritten.current) {
       lastWritten.current = value;
-      setText(fromAscii(value));
+      const big = isTreeTooLarge(value);
+      setTooLarge(big);
+      setText(big ? '' : fromAscii(value));
     }
   }, [value]);
 
@@ -79,8 +86,18 @@ export function TreeEditor({ value, onChange, onGestureEnd }: EditorProps) {
     }
   });
 
+  if (tooLarge) {
+    return (
+      <ReadOnlyFallback
+        content={value}
+        message="This tree is too large to edit visually — edit it as text in the file instead."
+      />
+    );
+  }
+
   const lines = text.split('\n');
   const depths = lines.map(depthOf);
+  const prefixes = connectorPrefixes(depths);
 
   const commit = (nextLines: string[], focus?: { line: number; caret: number }) => {
     if (focus) {
@@ -194,7 +211,7 @@ export function TreeEditor({ value, onChange, onGestureEnd }: EditorProps) {
     const errs = new Set<number>();
     let prevDepth = -1;
     for (const raw of lines) {
-      const name = nameOf(raw).replace(/\s+$/, '');
+      const name = nameOf(raw).trimEnd(); // not /\s+$/, which is quadratic on a long run of spaces
       if (name === '') { continue; } // drop blank lines
       let depth = depthOf(raw);
       const max = prevDepth + 1;
@@ -235,7 +252,7 @@ export function TreeEditor({ value, onChange, onGestureEnd }: EditorProps) {
                   : 'transparent',
             }}
           >
-            <span style={{ ...MONO, opacity: 0.35, flex: 'none' }}>{connectorPrefix(depths, i)}</span>
+            <span style={{ ...MONO, opacity: 0.35, flex: 'none' }}>{prefixes[i]}</span>
             <input
               ref={el => { inputs.current[i] = el; }}
               value={nameOf(line)}
