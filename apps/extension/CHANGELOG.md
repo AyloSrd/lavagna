@@ -1,8 +1,14 @@
 # Change Log
 
-## 0.2.0
+## 0.2.1
 
-First release on the VS Code Marketplace and Open VSX.
+Replaces 0.2.0, which was withdrawn from Open VSX.
+
+### Changed
+
+- A shorter README, written as a guide for people using the extension.
+
+## 0.2.0
 
 ### Changed
 
