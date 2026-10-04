@@ -1,7 +1,7 @@
 {
   "name": "lavagna",
   "description": "Agent skills for Lavagna boards — .lavagna.md prompt and plan files edited as a living canvas.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "AyloSrd",
     "url": "https://github.com/AyloSrd"
