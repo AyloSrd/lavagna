@@ -29,46 +29,6 @@ First release on the VS Code Marketplace and Open VSX.
 - Lavagna declares that it does not run in Restricted Mode (untrusted
   workspaces) or in virtual workspaces.
 
-<!--
-Not released yet. The agent-skills feature below is built and tested but not
-shipped: package.json contributes none of it and the build bundles no skills
-(see the comment at the top of src/extension.ts). Move these notes into the
-release that turns it on.
-
-### Added
-
-- **Skills.** A collapsed **Skills** line at the foot of the Lavagna panel,
-  under the boards, with an **Install skill** button on it. Expanded, it lists
-  the agent skills the extension ships, with their bundled version and — for
-  Claude Code, Cursor, Codex, GitHub Copilot, Gemini CLI and any other agent
-  reading `.agents/skills` — whether each is installed, out of date, or absent
-  in the global (`~/…`) and workspace scopes. **Install skill** asks for the
-  workspace folder (when several are open), the scope, then the agents
-  (detected ones pre-checked, destination paths shown), then copies the skill
-  folder once per distinct directory and reports the directories it wrote.
-  **Update** replaces an older copy; **Remove** confirms, then deletes it — to
-  the trash at workspace scope. Nothing is written until you click.
-- An existing folder Lavagna doesn't recognise as its own copy of the skill —
-  no `SKILL.md`, one naming another skill, or one whose version can't be read,
-  so one you wrote or another tool installed — is never replaced silently: a
-  modal names every such folder first, and *Skip these* leaves them alone. Only
-  a destination where nothing exists yet is written without asking. A
-  destination that is a symbolic link is refused outright, and so is any
-  install or removal whose path goes through a symbolic link inside the
-  workspace, or whose real location is outside the workspace or home folder
-  once links are resolved.
-- After your first board is created, a one-line prompt may offer to install the
-  core skill for the detected agents — only if it isn't installed anywhere yet,
-  and never after *Don't ask again*. The prompt itself writes nothing. Setting:
-  `lavagna.skills.suggestOnFirstBoard`.
-- Commands: *Lavagna: Install Skill* (also in the palette), *Update Skill*,
-  *Remove Skill*, *Refresh Skills*.
-- The extension now declares its two limits: `virtualWorkspaces` is *limited*
-  (skills need a local folder, so a `vscode-vfs://` workspace offers only the
-  global scope), and `untrustedWorkspaces` is *limited* — skills are only
-  installed into a trusted workspace.
--->
-
 ## 0.1.5
 
 ### Fixed
