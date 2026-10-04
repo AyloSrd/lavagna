@@ -42,10 +42,26 @@ const sharedOptions = {
 // notes file that happens to sit in the working tree. A .vsix is public and,
 // once published, permanent. scripts/check-vsix.mjs verifies the same set
 // from the package side.
+//
+// The skills ship only while package.json contributes the Skills view
+// (`lavagna.skills`): the feature is built but not released yet, and a bundle
+// with no UI to install from would be dead weight. scripts/check-vsix.mjs reads
+// the same switch.
+function shipsSkills() {
+	const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8'));
+	const views = Object.values(manifest.contributes?.views ?? {}).flat();
+	return views.some((view) => view && view.id === 'lavagna.skills');
+}
+
 function copySkills() {
 	const repoRoot = path.resolve(__dirname, '..', '..');
 	const from = path.join(repoRoot, 'skills');
 	const to = path.resolve(__dirname, 'skills');
+	if (!shipsSkills()) {
+		// Not released: make sure no copy left by an earlier build reaches the .vsix.
+		fs.rmSync(to, { recursive: true, force: true });
+		return;
+	}
 	// Check before deleting. If `from` is missing — a source tarball of
 	// apps/extension alone, a bad checkout, someone moving /skills — the delete
 	// would already have happened and the copy would throw an opaque ENOENT,

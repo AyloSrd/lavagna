@@ -1,4 +1,4 @@
-# Only dist/, the media/ runtime assets, skills/, README, CHANGELOG, LICENSE
+# Only dist/, the media/ runtime assets, skills/ (when the build copies it in), README, CHANGELOG, LICENSE
 # and the manifest belong in the package. Everything below is source or tooling.
 #
 # This is a denylist, so anything new leaks by default. `scripts/check-vsix.mjs`

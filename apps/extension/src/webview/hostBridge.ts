@@ -11,7 +11,6 @@ import { postToHost } from './vscodeApi';
 // to another block). Media saves are request/response pairs keyed by requestId;
 // block.* messages are filtered by the current session token.
 
-let mediaBaseUri: string | null = null;
 let currentToken: string | null = null;
 
 export interface BlockLifecycleHandler {
@@ -38,7 +37,6 @@ function onMessage(event: MessageEvent<HostToWebview>): void {
   switch (msg.type) {
     case 'block.init':
       currentToken = msg.token;
-      mediaBaseUri = msg.mediaBaseUri;
       blockHandler?.onInit(msg);
       break;
     case 'block.update':

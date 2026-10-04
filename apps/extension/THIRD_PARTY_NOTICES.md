@@ -6,8 +6,8 @@ the licence indicated; the full licence texts follow.
 
 | Package | Version | Licence |
 | --- | --- | --- |
-| @xyflow/react | 12.11.6 | MIT |
-| @xyflow/system | 0.0.82 | MIT |
+| @xyflow/react | 12.12.0 | MIT |
+| @xyflow/system | 0.0.83 | MIT |
 | classcat | 5.0.5 | MIT |
 | csstype | 3.2.3 | MIT |
 | d3-color | 3.1.0 | ISC |
@@ -20,12 +20,11 @@ the licence indicated; the full licence texts follow.
 | d3-transition | 3.0.1 | ISC |
 | d3-zoom | 3.0.0 | ISC |
 | its-fine | 2.0.0 | MIT |
-| konva | 10.5.0 | MIT |
+| konva | 10.7.0 | MIT |
 | react | 19.3.0 | MIT |
 | react-dom | 19.3.0 | MIT |
-| react-konva | 19.2.7 | MIT |
-| react-reconciler | 0.33.0 | MIT |
-| scheduler | 0.27.0 | MIT |
+| react-konva | 19.3.0 | MIT |
+| react-reconciler | 0.34.0 | MIT |
 | scheduler | 0.28.0 | MIT |
 | use-sync-external-store | 1.7.0 | MIT |
 | zustand | 4.5.7 | MIT |
@@ -33,7 +32,7 @@ the licence indicated; the full licence texts follow.
 
 ---
 
-## @xyflow/react@12.11.6
+## @xyflow/react@12.12.0
 
 https://reactflow.dev
 
@@ -63,7 +62,7 @@ SOFTWARE.
 
 ---
 
-## @xyflow/system@0.0.82
+## @xyflow/system@0.0.83
 
 https://github.com/xyflow/xyflow#readme
 
@@ -380,7 +379,7 @@ SOFTWARE.
 
 ---
 
-## konva@10.5.0
+## konva@10.7.0
 
 https://konvajs.org/
 
@@ -471,7 +470,7 @@ SOFTWARE.
 
 ---
 
-## react-konva@19.2.7
+## react-konva@19.3.0
 
 https://konvajs.org/docs/react/index.html
 
@@ -501,37 +500,7 @@ SOFTWARE.
 
 ---
 
-## react-reconciler@0.33.0
-
-https://react.dev/
-
-```
-MIT License
-
-Copyright (c) Meta Platforms, Inc. and affiliates.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
----
-
-## scheduler@0.27.0
+## react-reconciler@0.34.0
 
 https://react.dev/
 
@@ -647,6 +616,49 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+---
+
+# Embedded code
+
+## StackBlur
+
+http://www.quasimondo.com/StackBlurForCanvas — Copyright (c) 2010 Mario
+Klingemann, MIT.
+
+Konva's `Blur` filter embeds StackBlur 0.5, so it is part of
+`media/webview.js`. The notice below is the one carried in Konva's source.
+
+```
+StackBlur - a fast almost Gaussian Blur For Canvas
+
+Version:   0.5
+Author:    Mario Klingemann
+Website:   http://www.quasimondo.com/StackBlurForCanvas
+
+Copyright (c) 2010 Mario Klingemann
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ---

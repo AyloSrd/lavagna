@@ -281,7 +281,7 @@ export function CanvasEditor({
 
   /** Empty text is not worth keeping — drop the shape instead. */
   const commitText = (text: string) => {
-    const trimmed = text.replace(/\s+$/, '');
+    const trimmed = text.trimEnd();
     setShapes(prev =>
       trimmed
         ? prev.map(s => (s.id === editingId && s.type === 'text' ? { ...s, text: trimmed } : s))

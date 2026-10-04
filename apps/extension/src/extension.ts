@@ -19,13 +19,15 @@ import { registerBoardPaste, registerBoardPasteText } from './presentation/comma
 import { registerFileRefPaste } from './presentation/providers/FileRefPasteProvider';
 import { SlashMenuProvider } from './presentation/providers/SlashMenuProvider';
 import { LAVAGNA_DOC_SELECTOR } from './presentation/selectors';
-import { SkillsDeps } from './application/usecases/skills';
-import { BundledSkillCatalog } from './infrastructure/skills/BundledSkillCatalog';
-import { VsCodeSkillFiles } from './infrastructure/skills/VsCodeSkillFiles';
-import { VsCodeAgentDetection } from './infrastructure/skills/VsCodeAgentDetection';
-import { resetCatalogUnavailable, SkillsTreeProvider } from './presentation/providers/SkillsTreeProvider';
-import { registerSkillCommands } from './presentation/commands/skillCommands';
-import { SkillSuggestion } from './presentation/SkillSuggestion';
+
+// The agent-skills feature (Skills view, Install/Update/Remove commands, the
+// first-board prompt) is built — domain/skills, usecases/skills,
+// infrastructure/skills, the Skills tree and commands — but not shipped yet:
+// nothing here wires it up, and package.json contributes none of its views,
+// commands or settings. The build bundles /skills only when package.json
+// contributes the `lavagna.skills` view (see esbuild.js), so turning the
+// feature back on is: restore those contributions and the wiring the
+// 0.2.0 release commit removed from this file (`git log -p -- src/extension.ts`).
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(initLog());
@@ -38,40 +40,18 @@ export function activate(context: vscode.ExtensionContext) {
     : new NoopMediaRepository();
 
   const tree = new BoardsTreeProvider(boards);
-
-  // Agent skills from the bundle. Reading state is all that happens on its
-  // own; every write goes through a command the user clicks.
-  const skills: SkillsDeps = {
-    catalog: new BundledSkillCatalog(context.extensionUri),
-    files: new VsCodeSkillFiles(workspaceRoot),
-    detection: new VsCodeAgentDetection(workspaceRoot),
-  };
-  const skillsTree = new SkillsTreeProvider(skills);
-  const skillSuggestion = new SkillSuggestion(skills, context.globalState);
-  // The tree only sets this key when the section is expanded, so clear it here
-  // rather than leaving a stale `true` to show the "package is incomplete"
-  // welcome over a view that was never read.
-  void resetCatalogUnavailable();
   // Remembers recent selections so a paste can name its source file even when
   // the host never ran the copy hook. Must be live before the user copies.
   const copySources = new CopySourceTracker();
 
   context.subscriptions.push(
     vscode.window.createTreeView('lavagna.boards', { treeDataProvider: tree }),
-    vscode.window.createTreeView('lavagna.skills', { treeDataProvider: skillsTree }),
     vscode.languages.registerCodeLensProvider(LAVAGNA_DOC_SELECTOR, new BlockCodeLensProvider()),
     vscode.languages.registerHoverProvider(LAVAGNA_DOC_SELECTOR, new BlockHoverProvider()),
     vscode.languages.registerDocumentLinkProvider(LAVAGNA_DOC_SELECTOR, new FileRefLinkProvider()),
     // '/' opens the block menu, Notion-style.
     vscode.languages.registerCompletionItemProvider(LAVAGNA_DOC_SELECTOR, new SlashMenuProvider(), '/'),
-    // Fire-and-forget, but never an unhandled rejection: the prompt is a
-    // courtesy and must not surface as an error in the host.
-    ...registerBoardCommands(boards, tree, () => {
-      skillSuggestion
-        .offerAfterBoardCreated()
-        .catch((error) => log(`skill suggestion failed: ${error instanceof Error ? error.message : String(error)}`));
-    }),
-    ...registerSkillCommands(skills, skillsTree),
+    ...registerBoardCommands(boards, tree),
     ...registerBlockCommands((document, block) =>
       BlockEditorPanel.open(
         { extensionUri: context.extensionUri, media, workspaceRoot },

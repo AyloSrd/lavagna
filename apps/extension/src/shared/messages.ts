@@ -34,7 +34,6 @@ export interface BlockInitMessage {
   /** Current block text (fence body, or the whole table/image line). */
   content: string;
   meta: BlockMeta;
-  mediaBaseUri: string | null;
   /** For image blocks: the block's image resolved to a webview-loadable URI. */
   imageUri: string | null;
   /** For image blocks only; null otherwise. */

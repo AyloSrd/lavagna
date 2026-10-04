@@ -1,18 +1,52 @@
 import * as vscode from 'vscode';
 import { parseBlocks } from '../../domain/blocks/parseBlocks';
 import { BlockRef, LavagnaBlock } from '../../domain/blocks/types';
+import { log } from '../../infrastructure/logging/log';
+import { isInsideWorkspace } from '../../infrastructure/paths/containment';
 import { isEditableBlock } from '../selectors';
 import { BLOCK_SNIPPETS } from '../blockSnippets';
 
 
+/**
+ * The document a command argument names, or undefined when it must not be
+ * opened. The argument is whatever the caller supplied — a `command:` link can
+ * pass `file://host/share/x`, which on Windows opens an SMB connection — so a
+ * document that is not already open (CodeLens and hover name the active one)
+ * is only opened when it really lies inside the workspace.
+ */
+async function openTrusted(uri: unknown): Promise<vscode.TextDocument | undefined> {
+  let target: vscode.Uri | undefined;
+  if (uri instanceof vscode.Uri) {
+    target = uri;
+  } else if (typeof uri === 'string') {
+    try {
+      target = vscode.Uri.parse(uri, true);
+    } catch {
+      target = undefined; // not a URI at all
+    }
+  }
+  if (!target) {
+    log('editBlock: refused — the document argument is not a URI');
+    return undefined;
+  }
+  const key = target.toString();
+  const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
+  if (open) {
+    return open; // already loaded: nothing to fetch from disk or the network
+  }
+  if (!(await isInsideWorkspace(target))) {
+    log('editBlock: refused — the document is not inside the workspace');
+    return undefined;
+  }
+  return vscode.workspace.openTextDocument(target);
+}
+
 /** Resolves the target block: explicit ref (CodeLens/hover) or the block at the cursor. */
 async function resolveBlock(
-  uri?: vscode.Uri | string,
+  uri?: unknown,
   ref?: BlockRef,
 ): Promise<{ document: vscode.TextDocument; block: LavagnaBlock } | undefined> {
-  const document = uri
-    ? await vscode.workspace.openTextDocument(typeof uri === 'string' ? vscode.Uri.parse(uri) : uri)
-    : vscode.window.activeTextEditor?.document;
+  const document = uri ? await openTrusted(uri) : vscode.window.activeTextEditor?.document;
   if (!document) {
     return undefined;
   }
@@ -43,7 +77,7 @@ export function registerBlockCommands(
   disposables.push(
     vscode.commands.registerCommand(
       'lavagna.editBlock',
-      async (uri?: vscode.Uri | string, ref?: BlockRef) => {
+      async (uri?: unknown, ref?: BlockRef) => {
         const target = await resolveBlock(uri, ref);
         if (!target) {
           vscode.window.showInformationMessage(

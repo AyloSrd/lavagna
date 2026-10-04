@@ -26,7 +26,16 @@ class FakeDetection implements AgentDetectionPort {
   }
 }
 
-suite('Skills (integration)', () => {
+// The feature is built but not released: the package bundles the skills only
+// while package.json contributes the Skills view (esbuild.js). Without the
+// bundle there is no catalog to read, so the suite waits for the release.
+const skillsShipped = (
+  (vscode.extensions.getExtension('aylosrd.lavagna')!.packageJSON as {
+    contributes?: { views?: Record<string, { id: string }[]> };
+  }).contributes?.views?.lavagna ?? []
+).some((view) => view.id === 'lavagna.skills');
+
+(skillsShipped ? suite : suite.skip)('Skills (integration)', () => {
   // The bundle the running extension carries — what production reads.
   const extensionUri = vscode.extensions.getExtension('aylosrd.lavagna')!.extensionUri;
   const tempDirs: string[] = [];

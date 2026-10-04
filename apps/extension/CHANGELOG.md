@@ -1,6 +1,39 @@
 # Change Log
 
-## Unreleased
+## 0.2.0
+
+First release on the VS Code Marketplace and Open VSX.
+
+### Changed
+
+- New icon and activity-bar mark: the ꩜ spiral, in chalk on a slate tile.
+- Dependency updates, among them konva 10.7, react-konva 19.3 and
+  @xyflow/react 12.12 in the editors, and esbuild 0.28 in the build.
+- The Marketplace categories no longer include *Notebooks*.
+
+### Security
+
+- Saving an image never writes through a symbolic link: if `.lavagna`,
+  `.lavagna/media` or the image's file in it is a link — something a cloned
+  repository could plant to make Lavagna overwrite a file elsewhere — the save
+  is refused with an error instead.
+- **Choose image** accepts only real PNG, JPEG, GIF, WebP and BMP files, up to
+  32 MB; the file's contents decide, not its name.
+- A very long line in a board no longer freezes the editor. Several patterns
+  that read board text took seconds to minutes on lines with tens of thousands
+  of spaces; they now run in linear time, and very large tree blocks open
+  read-only like the other oversized blocks.
+- An image link or file reference that leads outside the workspace through a
+  symbolic link opens read-only or not at all, and *Delete Board* acts only on
+  a board directly inside `.lavagna/`, showing its path before asking.
+- Lavagna declares that it does not run in Restricted Mode (untrusted
+  workspaces) or in virtual workspaces.
+
+<!--
+Not released yet. The agent-skills feature below is built and tested but not
+shipped: package.json contributes none of it and the build bundles no skills
+(see the comment at the top of src/extension.ts). Move these notes into the
+release that turns it on.
 
 ### Added
 
@@ -34,6 +67,7 @@
   (skills need a local folder, so a `vscode-vfs://` workspace offers only the
   global scope), and `untrustedWorkspaces` is *limited* — skills are only
   installed into a trusted workspace.
+-->
 
 ## 0.1.5
 
