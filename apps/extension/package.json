@@ -334,7 +334,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",
-    "konva": "^10.7.0",
+    "konva": "^10.7.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-konva": "^19.3.0"
