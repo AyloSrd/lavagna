@@ -18,6 +18,20 @@ updates:
       interval: weekly
     commit-message:
       prefix: 'chore'
+    # Minor and patch dev-dependency updates are grouped into one PR; majors
+    # arrive one per PR so each can be judged on its own. Grouping majors
+    # bundled eight of them behind a single failing lint step (#16), so none
+    # of them were actually tested.
     groups:
       dev-dependencies:
         dependency-type: development
+        update-types: ['minor', 'patch']
+    ignore:
+      # Must track engines.vscode (^1.105.0, for Cursor compatibility), not the
+      # latest release: newer types let code compile against APIs Cursor's base
+      # doesn't have, and vsce refuses to package when they're ahead. Bump both
+      # together, by hand.
+      - dependency-name: '@types/vscode'
+      # typescript-eslint doesn't support TypeScript 7 yet; lift this once it does.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']

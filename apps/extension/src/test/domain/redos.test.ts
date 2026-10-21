@@ -14,11 +14,11 @@ import { parseSequence } from '../../webview/format/sequence';
 
 const BUDGET_MS = 100;
 
-function within<T>(label: string, fn: () => T): T {
+function within<T>(label: string, fn: () => T, budgetMs = BUDGET_MS): T {
   const start = performance.now();
   const result = fn();
   const ms = performance.now() - start;
-  assert.ok(ms < BUDGET_MS, `${label} took ${ms.toFixed(0)} ms (budget ${BUDGET_MS} ms)`);
+  assert.ok(ms < budgetMs, `${label} took ${ms.toFixed(0)} ms (budget ${budgetMs} ms)`);
   return result;
 }
 
@@ -165,7 +165,12 @@ suite('image lines: adversarial input is fast', () => {
 
   test('a document of many long image-ish lines', () => {
     const doc = Array.from({ length: 2000 }, () => '![a](' + ' '.repeat(2000) + 'x"').join('\n');
-    within('2000 lines of 2 KB', () => parseBlocks(doc));
+    // The one case the header's "about a millisecond" doesn't cover: this is
+    // 4 MB of input, so even the linear fix does real work. Measured: 16-18 ms
+    // locally, 113-127 ms on CI runners — over the shared 100 ms budget, which
+    // made it flaky. The pre-fix regex takes ~3.7 ms per line here, ~7.3 s for
+    // the document. 1 s sits 8x above the worst CI run and 7x below the bug.
+    within('2000 lines of 2 KB', () => parseBlocks(doc), 1000);
   });
 });
 
