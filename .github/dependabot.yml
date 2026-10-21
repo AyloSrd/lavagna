@@ -18,6 +18,28 @@ updates:
       interval: weekly
     commit-message:
       prefix: 'chore'
+    # Minor and patch dev-dependency updates are grouped into one PR; majors
+    # arrive one per PR so each can be judged on its own. Grouping majors
+    # bundled eight of them behind a single failing lint step (#16), so none
+    # of them were actually tested.
     groups:
       dev-dependencies:
         dependency-type: development
+        update-types: ['minor', 'patch']
+    ignore:
+      # Must track engines.vscode (^1.105.0, for Cursor compatibility), not the
+      # latest release: newer types let code compile against APIs Cursor's base
+      # doesn't have, and vsce refuses to package when they're ahead. Bump both
+      # together, by hand.
+      - dependency-name: '@types/vscode'
+      # TypeScript 7 is the native (Go) compiler; typescript-eslint can't run on
+      # it yet (its peer range is <6.1.0). Only 7+ is held back, so 6.x still
+      # arrives as its own PR. Lift this once typescript-eslint supports 7.
+      - dependency-name: 'typescript'
+        versions: ['>=7']
+      # Same reasoning as @types/vscode: the types must match the Node inside the
+      # editor's extension host at the engines.vscode floor (Node 22), not the
+      # newest Node, or code compiles against APIs the host doesn't have. Minor
+      # and patch updates within 22.x still come through the group.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
