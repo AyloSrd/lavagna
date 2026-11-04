@@ -4,12 +4,18 @@ import flowCss from '@xyflow/react/dist/style.css';
 import type { BlockInitMessage } from '../shared/messages';
 import { BlockEditorApp } from './BlockEditorApp';
 import { BlockLifecycleHandler, initHostBridge } from './hostBridge';
+import { UI_CSS } from './ui/styles';
 
 // React Flow ships its styles as a stylesheet; inject them once (bundled as
 // text via esbuild's css loader, so no extra <link>/CSP changes).
 const flowStyle = document.createElement('style');
 flowStyle.textContent = flowCss;
 document.head.appendChild(flowStyle);
+
+// The editors' shared look (toolbars, floating bars, code pane).
+const uiStyle = document.createElement('style');
+uiStyle.textContent = UI_CSS;
+document.head.appendChild(uiStyle);
 
 // The bridge must listen before React renders (`ready` triggers the host's
 // `block.init`), so route through a proxy that buffers until the app registers.

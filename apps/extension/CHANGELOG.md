@@ -1,5 +1,23 @@
 # Change Log
 
+## Unreleased
+
+### Changed
+
+- **Canvas:** a tool rail with one-key shortcuts, a style bar that follows the
+  selection, zoom and pan, undo and redo, and marks that stay selectable,
+  movable and restyleable until **Save into image** bakes them in. New:
+  highlighter, arrows that stay attached to shapes, labels inside shapes, and
+  an optional hand-drawn stroke.
+- **Flowchart:** a shape palette, **+** handles to connect or add the next step
+  (also with Tab), a bar on the selected step or link for shape, line style and
+  label, direction buttons with automatic tidy layout, undo and redo, and a
+  live view of the mermaid text.
+- **Sequence diagram:** edited on the diagram itself — drag between lifelines to
+  add a message, double-click any text to edit it, insert notes and loops
+  between rows, reorder steps and participants by dragging — with undo and redo
+  and the same live mermaid view.
+
 ## 0.2.1
 
 Replaces 0.2.0, which was withdrawn from Open VSX.

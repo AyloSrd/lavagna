@@ -1,26 +1,26 @@
 import React, { useEffect, useEffectEvent, useRef } from 'react';
+import { TEXT_FONT_FAMILY, TEXT_LINE_HEIGHT } from './canvas/model';
 
-// A canvas has no text input, so editing a text shape means floating a real
-// <textarea> over the stage at the shape's coordinates. The Konva node is
-// hidden while this is open, so only this box is visible — small metric
-// differences show up as a slight shift on commit, not as permanently
-// misaligned text.
+// A canvas has no text input, so editing a text mark (or a shape's label)
+// means floating a real <textarea> over the stage at the mark's position. The
+// canvas skips drawing that text while this is open, so only this box is
+// visible — small metric differences show up as a slight shift on commit, not
+// as permanently misaligned text.
 //
-// Font metrics MUST match the Konva Text node or the text jumps when
-// committed: same family, same size, same unitless line-height, no padding,
-// no border, `pre` so neither side ever wraps.
-
-/** Shared by the overlay and the Konva Text node — keep them identical. */
-export const TEXT_FONT_FAMILY = 'Arial, sans-serif';
-export const TEXT_LINE_HEIGHT = 1.2;
+// Font metrics MUST match the canvas renderer or the text jumps when
+// committed: same family, same (zoomed) size, same unitless line-height, no
+// padding, no border, `pre` so neither side ever wraps.
 
 export interface TextOverlayProps {
-  /** Stage coordinates; the stage is unscaled and 1:1 with its wrapper. */
+  /** Position inside the stage's box, in screen pixels (already zoomed). */
   x: number;
   y: number;
+  /** Font size in screen pixels (the mark's size times the zoom). */
   fontSize: number;
   color: string;
   initialText: string;
+  /** `center`: x/y is the middle of the text, as for a shape's label. */
+  align?: 'left' | 'center';
   onCommit(text: string): void;
   onCancel(): void;
 }
@@ -39,14 +39,15 @@ export function TextOverlay({
   fontSize,
   color,
   initialText,
+  align = 'left',
   onCommit,
   onCancel,
 }: TextOverlayProps) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
-  // The parent re-renders on every tool, colour, and hover change. As Effect
-  // Events these callbacks stay fresh without being dependencies, so the setup
-  // effect below never re-runs and can't disturb what is being typed.
+  // The parent re-renders on every tool, colour, zoom and hover change. As
+  // Effect Events these callbacks stay fresh without being dependencies, so the
+  // setup effect below never re-runs and can't disturb what is being typed.
   const commit = useEffectEvent((text: string) => onCommit(text));
   const cancel = useEffectEvent(() => onCancel());
 
@@ -60,7 +61,8 @@ export function TextOverlay({
     }
     autoSize(ta);
     ta.focus();
-    ta.setSelectionRange(ta.value.length, ta.value.length);
+    // Existing text opens selected, so typing replaces it.
+    ta.select();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -91,16 +93,27 @@ export function TextOverlay({
     };
   }, []);
 
+  // A zoom change resizes the font; refit the box to it.
+  useEffect(() => {
+    if (ref.current) {
+      autoSize(ref.current);
+    }
+  }, [fontSize]);
+
   return (
     <textarea
       ref={ref}
       defaultValue={initialText}
       spellCheck={false}
       wrap="off"
+      aria-label="Text"
       style={{
         position: 'absolute',
         left: x,
         top: y,
+        zIndex: 15,
+        transform: align === 'center' ? 'translate(-50%, -50%)' : undefined,
+        textAlign: align,
         margin: 0,
         padding: 0,
         border: 'none',

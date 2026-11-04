@@ -1,82 +1,93 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ARROW_LABELS,
-  ArrowKind,
-  MessageStep,
-  NoteStep,
-  Participant,
-  SequenceData,
-  SequenceStep,
-  parseSequence,
-  toSequence,
-} from '../format/sequence';
+import React, { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { EMPTY_SEQUENCE, SequenceData, SequenceStep, parseSequence, toSequence } from '../format/sequence';
 import type { EditorProps } from '../BlockEditorApp';
+import { CodePane } from '../ui/CodePane';
+import { HelpDialog, Hint, IconButton, Separator, ZoomControls, isTyping } from '../ui/controls';
+import { Icon } from '../ui/icons';
+import { UndoStack } from '../ui/undoStack';
 import { ReadOnlyFallback } from './ReadOnlyFallback';
+import { Diagram } from './sequence/Diagram';
+import * as edit from './sequence/edits';
+import { HintText, SHORTCUTS } from './sequence/help';
+import { HoverLayer, SELF_MIN } from './sequence/HoverLayer';
+import { InlineEditor } from './sequence/InlineEditor';
+import {
+  Box, GUTTER, LANE_W, ROWS_TOP, TOP, View,
+  fitView, isSelectable, laneAt, laneX, layoutSequence, nearestBoundary, rowAt,
+} from './sequence/layout';
+import { createMeasure } from './sequence/measure';
+import { InsertMenu, ParticipantMenu } from './sequence/Popovers';
+import type { Drag, Editing, Hover, Menu, Point } from './sequence/state';
+import { StepBar } from './sequence/StepBar';
+import { SEQ_CSS } from './sequence/styles';
 
-// Sequence diagrams have no node/edge model, so this is a different editor from
-// the flowchart one: a rendered diagram (lifelines + arrows) above an editable
-// step list. The fence stays the source of truth; nothing is written until the
-// user actually changes something.
+// Sequence diagrams are edited on the diagram itself: drag between lifelines to
+// add a message, click a step for its floating bar, double-click text to edit.
+// The fence stays the source of truth — parsed once, re-read only on external
+// change, and written back (via toSequence) only after a real user edit.
 
-const LANE_W = 150;
-const HEAD_H = 44;
-const ROW_H = 42;
-const PAD = 20;
+/** Pointer-downs on these belong to the floating UI, not the diagram. */
+const FLOATING_UI = '.lv-ctx, .lv-pop, .lv-zoom, .lv-seq-edit';
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 2.5;
+/** Code pane starts open when the panel is at least this wide. */
+const WIDE = 900;
 
-const BTN: React.CSSProperties = {
-  background: 'var(--vscode-button-secondaryBackground, #3a3d41)',
-  color: 'var(--vscode-button-secondaryForeground, #ccc)',
-  border: '1px solid var(--vscode-panel-border, #555)',
-  borderRadius: 4,
-  padding: '3px 8px',
-  fontSize: '0.76em',
-  cursor: 'pointer',
-};
-
-const FIELD: React.CSSProperties = {
-  background: 'transparent',
-  border: '1px solid transparent',
-  borderRadius: 3,
-  color: 'var(--vscode-foreground)',
-  font: 'inherit',
-  fontSize: 12,
-  padding: '2px 4px',
-};
-
-const STROKE = 'var(--vscode-foreground)';
-const MUTED = 'var(--vscode-descriptionForeground, #999)';
-
-const DOTTED: Record<ArrowKind, boolean> = {
-  solid: false, solidArrow: false, solidCross: false, solidOpen: false,
-  dotted: true, dottedArrow: true, dottedCross: true, dottedOpen: true,
-};
-
-/** Steps that occupy a row in the rendered diagram. */
-function isDrawn(step: SequenceStep): step is MessageStep | NoteStep {
-  return step.type === 'message' || step.type === 'note';
-}
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 export function SequenceEditor({ value, onChange, onGestureEnd }: EditorProps) {
   const lastWritten = useRef(value);
-  const touched = useRef(false);
-
   const initial = useRef<SequenceData | null | undefined>(undefined);
   if (initial.current === undefined) {
     initial.current = parseSequence(value);
   }
   const [invalid, setInvalid] = useState(initial.current === null);
-  const [data, setData] = useState<SequenceData>(
-    () => initial.current ?? { autonumber: false, participants: [], steps: [] },
-  );
-  const [selected, setSelected] = useState<number | null>(null);
+  const [data, setData] = useState<SequenceData>(() => initial.current ?? EMPTY_SEQUENCE);
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
-  // Re-read only on external change, never on our own echo.
+  const [sel, setSel] = useState<number | null>(null);
+  const [editing, setEditingState] = useState<Editing | null>(null);
+  const editingRef = useRef<Editing | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [drag, setDragState] = useState<Drag | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+  const [hover, setHover] = useState<Hover | null>(null);
+  const [view, setView] = useState<View>({ x: 8, y: 8, z: 1 });
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const viewTouched = useRef(false);
+  const [space, setSpace] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(() => window.innerWidth >= WIDE);
+  const [help, setHelp] = useState(false);
+  const history = useRef(new UndoStack<SequenceData>());
+  const lastDown = useRef<{ key: string; t: number } | null>(null);
+
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const popRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const measure = useMemo(createMeasure, []);
+  const layout = useMemo(() => layoutSequence(data, measure), [data, measure]);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+
+  const setDrag = (d: Drag | null) => {
+    dragRef.current = d;
+    setDragState(d);
+  };
+  const setEditing = (e: Editing | null) => {
+    editingRef.current = e;
+    setEditingState(e);
+  };
+
+  // Re-read only on external change (file edit, VS Code undo), never on our own echo.
   useEffect(() => {
     if (value === lastWritten.current) {
       return;
     }
     lastWritten.current = value;
-    touched.current = false;
     const parsed = parseSequence(value);
     if (!parsed) {
       setInvalid(true);
@@ -84,31 +95,556 @@ export function SequenceEditor({ value, onChange, onGestureEnd }: EditorProps) {
     }
     setInvalid(false);
     setData(parsed);
+    dataRef.current = parsed;
+    history.current.clear();
+    editingRef.current = null;
+    setEditingState(null);
+    setMenu(null);
+    setSel(null);
   }, [value]);
 
-  const commit = (next: SequenceData, flush = false) => {
-    touched.current = true;
+  // Fit to the panel width on open and on resize, until the user pans or zooms.
+  useLayoutEffect(() => {
+    const el = stageRef.current;
+    if (!el) {
+      return;
+    }
+    const refit = () => {
+      if (!viewTouched.current && el.clientWidth > 50) {
+        setView(fitView(el.clientWidth, el.clientHeight, layoutRef.current, false));
+      }
+    };
+    refit();
+    const ro = new ResizeObserver(refit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [invalid]);
+
+  // A new participant widens the diagram; keep it in view while the view is still automatic.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (el && !viewTouched.current && el.clientWidth > 50) {
+      setView(fitView(el.clientWidth, el.clientHeight, layoutRef.current, false));
+    }
+  }, [layout.width]);
+
+  // ---------------------------------------------------------------- writing
+
+  /** Show `next` and write it to the fence (no undo record). */
+  const write = (next: SequenceData) => {
     setData(next);
+    dataRef.current = next;
     const text = toSequence(next);
     if (text !== lastWritten.current) {
       lastWritten.current = text;
       onChange(text);
-      if (flush) {
-        onGestureEnd();
+      onGestureEnd();
+    }
+  };
+
+  /** A user edit: undoable, written at once. A change that serializes the same is not an edit. */
+  const commit = (next: SequenceData) => {
+    const prev = dataRef.current;
+    if (toSequence(next) === toSequence(prev)) {
+      setData(next);
+      dataRef.current = next;
+      return;
+    }
+    history.current.record(prev);
+    write(next);
+  };
+
+  const undo = () => {
+    finishEdit();
+    const prev = history.current.undo(dataRef.current);
+    if (prev) {
+      setMenu(null);
+      setSel((s) => (s !== null && s < prev.steps.length ? s : null));
+      write(prev);
+    }
+  };
+  const redo = () => {
+    finishEdit();
+    const next = history.current.redo(dataRef.current);
+    if (next) {
+      setMenu(null);
+      setSel((s) => (s !== null && s < next.steps.length ? s : null));
+      write(next);
+    }
+  };
+
+  // ---------------------------------------------------------------- text editing
+
+  const startEdit = (i: number) => {
+    if (!isSelectable(dataRef.current.steps[i])) {
+      return;
+    }
+    setMenu(null);
+    setSel(i);
+    setEditing({ kind: 'step', i });
+  };
+
+  const commitEdit = (raw: string) => {
+    const e = editingRef.current;
+    if (!e) {
+      return;
+    }
+    setEditing(null);
+    const v = raw.trim();
+    const cur = dataRef.current;
+    if (e.kind === 'step') {
+      const s = cur.steps[e.i];
+      let next: SequenceStep | undefined;
+      if (s?.type === 'message' || s?.type === 'note') {
+        next = v ? { ...s, text: v } : s;
+      } else if (s?.type === 'block') {
+        next = { ...s, label: v };
+      }
+      if (next && next !== s) {
+        commit(edit.setStep(cur, e.i, next));
+      }
+      return;
+    }
+    const p = cur.participants.find((x) => x.id === e.id);
+    if (!p) {
+      return;
+    }
+    let next = v && v !== p.label ? edit.setParticipant(cur, e.id, { label: v }) : cur;
+    if (e.isNew) {
+      // A brand-new participant takes its id from the first name it gets; same
+      // undo step as adding it.
+      next = edit.renameId(next, e.id, edit.idFromLabel(next, v || p.label, e.id));
+      write(next);
+    } else if (next !== cur) {
+      commit(next);
+    }
+  };
+
+  const cancelEdit = () => setEditing(null);
+
+  /** Commit an open field before acting on a click elsewhere (an unmounted field never blurs). */
+  const finishEdit = () => {
+    if (editingRef.current && inputRef.current) {
+      commitEdit(inputRef.current.value);
+    }
+  };
+
+  // ---------------------------------------------------------------- edits
+
+  const indexOf = (id: string) => dataRef.current.participants.findIndex((p) => p.id === id);
+
+  const addParticipant = () => {
+    const r = edit.addParticipant(dataRef.current);
+    commit(r.data);
+    setSel(null);
+    setEditing({ kind: 'head', id: r.id, isNew: true });
+  };
+
+  const insert = (idx: number, kind: edit.InsertKind) => {
+    const r = edit.insertTemplate(dataRef.current, idx, kind);
+    setMenu(null);
+    commit(r.data);
+    startEdit(r.index);
+  };
+
+  const moveSelected = (delta: -1 | 1) => {
+    const s = sel === null ? undefined : dataRef.current.steps[sel];
+    if (sel === null || (s?.type !== 'message' && s?.type !== 'note')) {
+      return;
+    }
+    const r = edit.moveStep(dataRef.current, sel, delta);
+    if (r) {
+      commit(r.data);
+      setSel(r.index);
+    }
+  };
+
+  const deleteSelected = () => {
+    if (sel === null) {
+      return;
+    }
+    commit(edit.deleteStep(dataRef.current, sel));
+    setSel(null);
+  };
+
+  // ---------------------------------------------------------------- view
+
+  const zoomAt = (sx: number, sy: number, z: number) => {
+    viewTouched.current = true;
+    setView((v) => {
+      const nz = clamp(z, MIN_ZOOM, MAX_ZOOM);
+      const wx = (sx - v.x) / v.z;
+      const wy = (sy - v.y) / v.z;
+      return { z: nz, x: sx - wx * nz, y: sy - wy * nz };
+    });
+  };
+  const zoomBy = (f: number) => {
+    const el = stageRef.current;
+    if (el) {
+      zoomAt(el.clientWidth / 2, el.clientHeight / 2, viewRef.current.z * f);
+    }
+  };
+  const fitWhole = () => {
+    const el = stageRef.current;
+    if (el) {
+      viewTouched.current = true;
+      setView(fitView(el.clientWidth, el.clientHeight, layoutRef.current, true));
+    }
+  };
+
+  const onWheel = useEffectEvent((ev: WheelEvent) => {
+    if ((ev.target as Element).closest('.lv-ctx, .lv-pop')) {
+      return;
+    }
+    ev.preventDefault();
+    const k = ev.deltaMode === 1 ? 16 : 1;
+    if (ev.ctrlKey || ev.metaKey) {
+      const r = stageRef.current!.getBoundingClientRect();
+      zoomAt(ev.clientX - r.left, ev.clientY - r.top, viewRef.current.z * Math.exp(-ev.deltaY * k * 0.01));
+    } else {
+      viewTouched.current = true;
+      setView((v) => ({ ...v, x: v.x - ev.deltaX * k, y: v.y - ev.deltaY * k }));
+    }
+    setMenu(null);
+  });
+  // Native listener: React's onWheel is passive and can't stop the panel scrolling.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) {
+      return;
+    }
+    const handler = (ev: WheelEvent) => onWheel(ev);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [invalid]);
+
+  // ---------------------------------------------------------------- pointer
+
+  const toWorld = (ev: { clientX: number; clientY: number }): Point => {
+    const r = stageRef.current!.getBoundingClientRect();
+    const v = viewRef.current;
+    return { x: (ev.clientX - r.left - v.x) / v.z, y: (ev.clientY - r.top - v.y) / v.z };
+  };
+
+  const startPan = (ev: React.PointerEvent, clickDeselects: boolean) => {
+    const v = viewRef.current;
+    setDrag({ mode: 'pan', sx: ev.clientX, sy: ev.clientY, vx: v.x, vy: v.y, moved: false, clickDeselects });
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+  };
+
+  const onPointerDown = (ev: React.PointerEvent<HTMLDivElement>) => {
+    const target = ev.target as Element;
+    if (target.closest(FLOATING_UI)) {
+      return;
+    }
+    finishEdit();
+    const p = toWorld(ev);
+    const t = target.closest<HTMLElement | SVGElement>('[data-role]');
+    const role = t?.dataset.role ?? null;
+    const key = role ? `${role}:${t!.dataset.i ?? t!.dataset.id ?? ''}` : 'bg';
+    // Detected by hand: selecting re-renders the step, so the browser's own
+    // dblclick doesn't always see two clicks on the same node.
+    const now = performance.now();
+    const dbl = role !== null && lastDown.current?.key === key && now - lastDown.current.t < 400;
+    lastDown.current = { key, t: now };
+    if (role !== 'headmenu') {
+      setMenu(null);
+    }
+    if (ev.button === 1 || space) {
+      startPan(ev, false);
+      return;
+    }
+    if (ev.button !== 0) {
+      return;
+    }
+    const capture = () => ev.currentTarget.setPointerCapture(ev.pointerId);
+    const id = t?.dataset.id ?? '';
+    switch (role) {
+      case 'step': {
+        const i = Number(t!.dataset.i);
+        if (dbl) {
+          startEdit(i);
+        } else {
+          setSel(i);
+        }
+        return;
+      }
+      case 'head':
+        if (dbl) {
+          setEditing({ kind: 'head', id, isNew: false });
+          return;
+        }
+        setDrag({ mode: 'head', id, x0: p.x, dx: 0, moved: false });
+        capture();
+        return;
+      case 'headmenu':
+        setSel(null);
+        setHover(null);
+        setMenu((m) => (m?.kind === 'participant' && m.id === id ? null : { kind: 'participant', id, confirm: false, error: '' }));
+        return;
+      case 'ghosthead':
+        addParticipant();
+        return;
+      case 'lane': {
+        setSel(null);
+        const start = { x: p.x, y: Math.max(ROWS_TOP - 8, p.y) };
+        setDrag({ mode: 'message', from: id, start, p });
+        capture();
+        return;
+      }
+      case 'plus':
+        setHover(null);
+        setMenu({ kind: 'insert', idx: Number(t!.dataset.idx), y: Number(t!.dataset.y) });
+        return;
+      case 'grip': {
+        const i = Number(t!.dataset.i);
+        setSel(i);
+        setDrag({ mode: 'reorder', i, target: null });
+        capture();
+        return;
+      }
+      default:
+        startPan(ev, true);
+    }
+  };
+
+  const updateHover = (p: Point, target: Element) => {
+    const r = target.closest<HTMLElement | SVGElement>('[data-role]');
+    const role = r?.dataset.role;
+    if (role === 'plus' || role === 'grip') {
+      return;
+    }
+    const lay = layoutRef.current;
+    let h: Hover | null = null;
+    if (role === 'lane') {
+      h = { kind: 'dot', x: laneX(indexOf(r!.dataset.id ?? '')), y: Math.round(Math.max(ROWS_TOP - 8, p.y)) };
+    } else if (
+      role !== 'head' && role !== 'headmenu' && role !== 'ghosthead' &&
+      p.y >= ROWS_TOP - 12 && p.x >= 0 && p.x <= lay.width && p.y <= lay.last + 12
+    ) {
+      const b = nearestBoundary(lay, p.y);
+      if (b.d < 8) {
+        h = { kind: 'plus', y: b.y, idx: b.idx };
+      } else {
+        const i = rowAt(lay, p.y);
+        const s = i === null ? undefined : dataRef.current.steps[i];
+        if (i !== null && (s?.type === 'message' || s?.type === 'note')) {
+          h = { kind: 'grip', i, y: lay.rows[i].cy };
+        }
+      }
+    }
+    setHover((old) => (JSON.stringify(old) === JSON.stringify(h) ? old : h));
+  };
+
+  const onPointerMove = (ev: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) {
+      const target = ev.target as Element;
+      if (!target.closest(FLOATING_UI)) {
+        updateHover(toWorld(ev), target);
+      }
+      return;
+    }
+    const p = toWorld(ev);
+    switch (d.mode) {
+      case 'pan': {
+        const dx = ev.clientX - d.sx;
+        const dy = ev.clientY - d.sy;
+        if (!d.moved && Math.hypot(dx, dy) < 4) {
+          return;
+        }
+        viewTouched.current = true;
+        setDrag({ ...d, moved: true });
+        setView((v) => ({ ...v, x: d.vx + dx, y: d.vy + dy }));
+        return;
+      }
+      case 'message':
+        setDrag({ ...d, p });
+        return;
+      case 'head': {
+        const dx = p.x - d.x0;
+        setDrag({ ...d, dx, moved: d.moved || Math.abs(dx) > 4 });
+        return;
+      }
+      case 'reorder':
+        setDrag({ ...d, target: nearestBoundary(layoutRef.current, p.y) });
+        return;
+    }
+  };
+
+  const endDrag = (cancelled: boolean) => {
+    const d = dragRef.current;
+    if (!d) {
+      return;
+    }
+    setDrag(null);
+    if (cancelled) {
+      return;
+    }
+    const cur = dataRef.current;
+    switch (d.mode) {
+      case 'pan':
+        if (!d.moved && d.clickDeselects) {
+          setSel(null);
+        }
+        return;
+      case 'message': {
+        const k = laneAt(cur.participants.length, d.p.x);
+        if (k === null) {
+          return;
+        }
+        const to = cur.participants[k].id;
+        if (to === d.from && Math.hypot(d.p.x - d.start.x, d.p.y - d.start.y) < SELF_MIN) {
+          return;
+        }
+        const idx = nearestBoundary(layoutRef.current, d.start.y).idx;
+        commit(edit.insertSteps(cur, idx, [
+          { type: 'message', from: d.from, to, arrow: 'solidArrow', text: to === d.from ? 'think' : 'message' },
+        ]));
+        startEdit(idx);
+        return;
+      }
+      case 'head': {
+        if (!d.moved) {
+          return;
+        }
+        const k = indexOf(d.id);
+        commit(edit.moveParticipant(cur, k, Math.round((laneX(k) + d.dx - laneX(0)) / LANE_W)));
+        return;
+      }
+      case 'reorder': {
+        const r = d.target ? edit.moveStepTo(cur, d.i, d.target.idx) : null;
+        if (r) {
+          commit(r.data);
+          setSel(r.index);
+        }
+        return;
       }
     }
   };
 
-  const ids = data.participants.map((p) => p.id);
-  const laneX = useMemo(() => {
-    const map = new Map<string, number>();
-    data.participants.forEach((p, i) => map.set(p.id, PAD + LANE_W / 2 + i * LANE_W));
-    return map;
-  }, [data.participants]);
+  // ---------------------------------------------------------------- keyboard
 
-  const drawn = data.steps.filter(isDrawn);
-  const width = Math.max(PAD * 2 + Math.max(1, data.participants.length) * LANE_W, 320);
-  const height = HEAD_H + PAD + Math.max(1, drawn.length) * ROW_H + PAD;
+  const onKeyDown = useEffectEvent((ev: KeyboardEvent) => {
+    if (invalid || help || isTyping(ev)) {
+      return;
+    }
+    const mod = ev.metaKey || ev.ctrlKey;
+    const key = ev.key;
+    if (key === ' ') {
+      ev.preventDefault();
+      setSpace(true);
+      return;
+    }
+    if (mod && key.toLowerCase() === 'z') {
+      ev.preventDefault();
+      if (ev.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+      return;
+    }
+    if (mod && key.toLowerCase() === 'y') {
+      ev.preventDefault();
+      redo();
+      return;
+    }
+    if (mod) {
+      return;
+    }
+    const steps = dataRef.current.steps;
+    if (key === '?') {
+      setHelp(true);
+    } else if (key === '!' || (ev.shiftKey && ev.code === 'Digit1')) {
+      fitWhole();
+    } else if (key === 'Escape') {
+      if (dragRef.current) {
+        setDrag(null);
+      } else if (menu) {
+        setMenu(null);
+      } else {
+        setSel(null);
+      }
+    } else if ((key === 'Delete' || key === 'Backspace') && sel !== null) {
+      ev.preventDefault();
+      deleteSelected();
+    } else if (key === 'Enter' && sel !== null) {
+      ev.preventDefault();
+      startEdit(sel);
+    } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+      ev.preventDefault();
+      const d = key === 'ArrowUp' ? -1 : 1;
+      if (ev.altKey) {
+        moveSelected(d);
+        return;
+      }
+      let i = sel ?? (d > 0 ? -1 : steps.length);
+      do {
+        i += d;
+      } while (i >= 0 && i < steps.length && !isSelectable(steps[i]));
+      if (i >= 0 && i < steps.length) {
+        setSel(i);
+      }
+    }
+  });
+  const onKeyUp = useEffectEvent((ev: KeyboardEvent) => {
+    if (ev.key === ' ') {
+      setSpace(false);
+    }
+  });
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => onKeyDown(e);
+    const up = (e: KeyboardEvent) => onKeyUp(e);
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, []);
+
+  // ---------------------------------------------------------------- floating UI placement
+
+  const selStep = sel === null ? undefined : data.steps[sel];
+  const anchor = sel === null ? null : layout.anchors[sel] ?? null;
+  const showBar = !!anchor && isSelectable(selStep) && !editing && !menu && (!drag || drag.mode === 'pan');
+
+  // Centre the bar over the selection, inside the stage; below it when there is no room above.
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    const st = stageRef.current;
+    if (!el || !st || !anchor) {
+      return;
+    }
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const sw = st.clientWidth;
+    let top = view.y + anchor.top * view.z;
+    let transform = 'translate(-50%, calc(-100% - 10px))';
+    if (top - h - 12 < 4) {
+      top = view.y + anchor.bottom * view.z + 10;
+      transform = 'translate(-50%, 0)';
+    }
+    el.style.left = `${clamp(view.x + anchor.cx * view.z, w / 2 + 8, Math.max(w / 2 + 8, sw - w / 2 - 8))}px`;
+    el.style.top = `${top}px`;
+    el.style.transform = transform;
+  });
+
+  // Keep popovers inside the stage.
+  useLayoutEffect(() => {
+    const el = popRef.current;
+    const st = stageRef.current;
+    if (!el || !st || !menu) {
+      return;
+    }
+    const x = menu.kind === 'insert'
+      ? view.x + (GUTTER + 2) * view.z
+      : view.x + (laneX(Math.max(0, indexOf(menu.id))) - 95) * view.z;
+    const y = menu.kind === 'insert' ? view.y + menu.y * view.z + 10 : view.y + (TOP + 56) * view.z;
+    el.style.left = `${clamp(x, 8, Math.max(8, st.clientWidth - el.offsetWidth - 8))}px`;
+    el.style.top = `${clamp(y, 8, Math.max(8, st.clientHeight - el.offsetHeight - 8))}px`;
+  });
 
   if (invalid) {
     return (
@@ -119,338 +655,164 @@ export function SequenceEditor({ value, onChange, onGestureEnd }: EditorProps) {
     );
   }
 
-  // --- mutations -----------------------------------------------------------
-  const setParticipant = (i: number, patch: Partial<Participant>) =>
-    commit({ ...data, participants: data.participants.map((p, j) => (j === i ? { ...p, ...patch } : p)) });
+  // Where the inline field opens, in diagram units.
+  let editBox: { box: Box; align: 'left' | 'center'; initial: string } | null = null;
+  if (editing?.kind === 'step') {
+    const s = data.steps[editing.i];
+    const a = layout.anchors[editing.i];
+    if (a && s && (s.type === 'message' || s.type === 'note' || s.type === 'block')) {
+      editBox = { box: a.edit, align: a.align, initial: s.type === 'block' ? s.label : s.text };
+    }
+  } else if (editing?.kind === 'head') {
+    const k = indexOf(editing.id);
+    const p = data.participants[k];
+    if (p) {
+      const w = LANE_W - 30;
+      editBox = { box: { x: laneX(k) - w / 2, y: p.actor ? TOP + 30 : TOP + 6, w, h: 24 }, align: 'center', initial: p.label };
+    }
+  }
 
-  const addParticipant = () => {
-    let n = data.participants.length + 1;
-    while (ids.includes(`P${n}`)) { n++; }
-    commit({ ...data, participants: [...data.participants, { id: `P${n}`, label: `P${n}`, actor: false }] }, true);
-  };
-
-  const removeParticipant = (id: string) =>
-    commit(
-      {
-        ...data,
-        participants: data.participants.filter((p) => p.id !== id),
-        // Drop steps that referenced it, or they'd re-create it on next parse.
-        steps: data.steps.filter((s) =>
-          s.type === 'message' ? s.from !== id && s.to !== id
-          : s.type === 'note' ? !s.actors.includes(id)
-          : s.type === 'activate' || s.type === 'deactivate' ? s.actor !== id
-          : true,
-        ),
-      },
-      true,
-    );
-
-  const moveParticipant = (i: number, delta: number) => {
-    const j = i + delta;
-    if (j < 0 || j >= data.participants.length) { return; }
-    const next = data.participants.slice();
-    [next[i], next[j]] = [next[j], next[i]];
-    commit({ ...data, participants: next }, true);
-  };
-
-  const setStep = (i: number, patch: Partial<MessageStep> & Partial<NoteStep>) =>
-    commit({
-      ...data,
-      steps: data.steps.map((s, j) => (j === i ? ({ ...s, ...patch } as SequenceStep) : s)),
-    });
-
-  const addMessage = () => {
-    const from = ids[0] ?? 'A';
-    const to = ids[1] ?? from;
-    commit({
-      ...data,
-      participants: data.participants.length
-        ? data.participants
-        : [{ id: 'A', label: 'A', actor: false }, { id: 'B', label: 'B', actor: false }],
-      steps: [...data.steps, { type: 'message', from, to: ids[1] ? to : (ids[0] ?? 'B'), arrow: 'solidArrow', text: 'message' }],
-    }, true);
-  };
-
-  const addNote = () => {
-    const actor = ids[0] ?? 'A';
-    commit({ ...data, steps: [...data.steps, { type: 'note', placement: 'over', actors: [actor], text: 'note' }] }, true);
-  };
-
-  const removeStep = (i: number) => {
-    commit({ ...data, steps: data.steps.filter((_, j) => j !== i) }, true);
-    setSelected(null);
-  };
-
-  const moveStep = (i: number, delta: number) => {
-    const j = i + delta;
-    if (j < 0 || j >= data.steps.length) { return; }
-    const next = data.steps.slice();
-    [next[i], next[j]] = [next[j], next[i]];
-    commit({ ...data, steps: next }, true);
-    setSelected(j);
-  };
-
-  // --- render --------------------------------------------------------------
-  let drawnIndex = -1;
+  const menuParticipant = menu?.kind === 'participant' ? data.participants.find((p) => p.id === menu.id) : undefined;
+  const cursor = drag?.mode === 'pan' && drag.moved ? 'grabbing' : space ? 'grab' : undefined;
 
   return (
-    <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        <button style={BTN} onMouseDown={(e) => { e.preventDefault(); addParticipant(); }}>＋ Participant</button>
-        <button style={BTN} onMouseDown={(e) => { e.preventDefault(); addMessage(); }}>＋ Message</button>
-        <button style={BTN} onMouseDown={(e) => { e.preventDefault(); addNote(); }}>＋ Note</button>
-        <label style={{ fontSize: '0.76em', display: 'flex', alignItems: 'center', gap: 4, marginLeft: 4 }}>
-          <input
-            type="checkbox"
-            checked={data.autonumber}
-            onChange={(e) => commit({ ...data, autonumber: e.target.checked }, true)}
-          />
-          autonumber
-        </label>
+    <div className="lv-editor">
+      <style>{SEQ_CSS}</style>
+      <div className="lv-bar" role="toolbar" aria-label="Sequence diagram">
+        <button
+          type="button"
+          className="lv-btn lv-btn--ghost lv-seq-toggle"
+          aria-pressed={data.autonumber}
+          title="Number the messages"
+          onMouseDown={(e) => { e.preventDefault(); commit({ ...dataRef.current, autonumber: !dataRef.current.autonumber }); }}
+        >
+          <Icon name="numbered" />Autonumber
+        </button>
+        <button type="button" className="lv-btn lv-btn--ghost" onMouseDown={(e) => { e.preventDefault(); addParticipant(); }}>
+          <Icon name="participant" /><span className="lv-seq-wide">Participant</span>
+        </button>
+        <button
+          type="button"
+          className="lv-btn lv-btn--ghost"
+          title="Add a message at the end"
+          onMouseDown={(e) => { e.preventDefault(); insert(dataRef.current.steps.length, 'message'); }}
+        >
+          <Icon name="plus" /><span className="lv-seq-wide">Message</span>
+        </button>
+        <span className="lv-spacer" />
+        <IconButton icon="undo" label="Undo" shortcut="⌘Z" disabled={!history.current.canUndo} onPress={undo} />
+        <IconButton icon="redo" label="Redo" shortcut="⇧⌘Z" disabled={!history.current.canRedo} onPress={redo} />
+        <Separator />
+        <IconButton icon="code" label="Mermaid source" pressed={codeOpen} onPress={() => setCodeOpen((o) => !o)} />
+        <IconButton icon="help" label="Keyboard shortcuts" shortcut="?" onPress={() => setHelp(true)} />
       </div>
 
-      {/* Rendered diagram */}
-      <div style={{ overflow: 'auto', border: '1px solid var(--vscode-panel-border, #444)', borderRadius: 6 }}>
-        <svg width={width} height={height} style={{ display: 'block', minWidth: '100%' }}>
-          {/* Lifelines + heads */}
-          {data.participants.map((p) => {
-            const x = laneX.get(p.id)!;
-            return (
-              <g key={p.id}>
-                <line x1={x} y1={HEAD_H} x2={x} y2={height - PAD} stroke={MUTED} strokeWidth={1} strokeDasharray="4 4" />
-                <rect
-                  x={x - LANE_W / 2 + 8}
-                  y={8}
-                  width={LANE_W - 16}
-                  height={HEAD_H - 16}
-                  rx={p.actor ? 14 : 3}
-                  fill="var(--vscode-editorWidget-background, #252526)"
-                  stroke="var(--vscode-focusBorder, #007acc)"
-                  strokeWidth={1}
-                />
-                <text
-                  x={x}
-                  y={HEAD_H / 2 + 1}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill={STROKE}
-                  fontSize={11}
-                  fontFamily="var(--vscode-font-family)"
-                >
-                  {p.label.length > 18 ? `${p.label.slice(0, 17)}…` : p.label}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Messages and notes, in order */}
-          {data.steps.map((step, i) => {
-            if (!isDrawn(step)) {
-              return null;
-            }
-            drawnIndex++;
-            const y = HEAD_H + PAD + drawnIndex * ROW_H + ROW_H / 2;
-            const isSel = selected === i;
-
-            if (step.type === 'note') {
-              const xs = step.actors.map((a) => laneX.get(a)).filter((v): v is number => v !== undefined);
-              if (xs.length === 0) { return null; }
-              const left = Math.min(...xs) - (step.placement === 'right of' ? -30 : 60);
-              const w = xs.length > 1 ? Math.max(...xs) - Math.min(...xs) + 120 : 120;
-              return (
-                <g key={i} onClick={() => setSelected(i)} style={{ cursor: 'pointer' }}>
-                  <rect
-                    x={left} y={y - 13} width={w} height={26} rx={2}
-                    fill="var(--vscode-inputValidation-warningBackground, rgba(204,167,0,0.18))"
-                    stroke={isSel ? 'var(--vscode-focusBorder,#007acc)' : MUTED}
-                    strokeWidth={isSel ? 2 : 1}
-                  />
-                  <text x={left + w / 2} y={y + 1} textAnchor="middle" dominantBaseline="middle" fill={STROKE} fontSize={10}>
-                    {step.text.length > 34 ? `${step.text.slice(0, 33)}…` : step.text}
-                  </text>
-                </g>
-              );
-            }
-
-            const x1 = laneX.get(step.from);
-            const x2 = laneX.get(step.to);
-            if (x1 === undefined || x2 === undefined) { return null; }
-            const dash = DOTTED[step.arrow] ? '5 4' : undefined;
-            const sw = isSel ? 2 : 1.2;
-            const stroke = isSel ? 'var(--vscode-focusBorder,#007acc)' : STROKE;
-
-            // A self-message loops out and back.
-            if (step.from === step.to) {
-              const d = `M ${x1} ${y - 10} H ${x1 + 46} V ${y + 10} H ${x1 + 6}`;
-              return (
-                <g key={i} onClick={() => setSelected(i)} style={{ cursor: 'pointer' }}>
-                  <path d={d} fill="none" stroke={stroke} strokeWidth={sw} strokeDasharray={dash} markerEnd="url(#seq-arrow)" />
-                  <text x={x1 + 54} y={y} dominantBaseline="middle" fill={STROKE} fontSize={10}>
-                    {step.text.length > 30 ? `${step.text.slice(0, 29)}…` : step.text}
-                  </text>
-                </g>
-              );
-            }
-
-            const mid = (x1 + x2) / 2;
-            return (
-              <g key={i} onClick={() => setSelected(i)} style={{ cursor: 'pointer' }}>
-                <line x1={x1} y1={y} x2={x2} y2={y} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} markerEnd="url(#seq-arrow)" />
-                <text x={mid} y={y - 6} textAnchor="middle" fill={STROKE} fontSize={10}>
-                  {step.text.length > 34 ? `${step.text.slice(0, 33)}…` : step.text}
-                </text>
-              </g>
-            );
-          })}
-
-          <defs>
-            <marker id="seq-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill={STROKE} />
-            </marker>
-          </defs>
-        </svg>
-      </div>
-
-      {/* Participants */}
-      <div>
-        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Participants</div>
-        {data.participants.map((p, i) => (
-          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-            <input
-              value={p.id}
-              onChange={(e) => {
-                const id = e.target.value.replace(/[^A-Za-z0-9_]/g, '');
-                if (!id || (ids.includes(id) && id !== p.id)) { return; }
-                const old = p.id;
-                commit({
-                  ...data,
-                  participants: data.participants.map((x, j) => (j === i ? { ...x, id } : x)),
-                  steps: data.steps.map((s) =>
-                    s.type === 'message' ? { ...s, from: s.from === old ? id : s.from, to: s.to === old ? id : s.to }
-                    : s.type === 'note' ? { ...s, actors: s.actors.map((a) => (a === old ? id : a)) }
-                    : s.type === 'activate' || s.type === 'deactivate' ? { ...s, actor: s.actor === old ? id : s.actor }
-                    : s,
-                  ),
-                });
-              }}
-              onBlur={onGestureEnd}
-              title="Identifier used in messages"
-              style={{ ...FIELD, width: 70, fontFamily: 'var(--vscode-editor-font-family, monospace)' }}
-            />
-            <input
-              value={p.label}
-              onChange={(e) => setParticipant(i, { label: e.target.value })}
-              onBlur={onGestureEnd}
-              placeholder="display name"
-              style={{ ...FIELD, flex: 1, minWidth: 80 }}
-            />
-            <label style={{ fontSize: '0.72em', display: 'flex', alignItems: 'center', gap: 3 }}>
-              <input type="checkbox" checked={p.actor} onChange={(e) => setParticipant(i, { actor: e.target.checked })} />
-              actor
-            </label>
-            <button style={BTN} title="Move left" onMouseDown={(e) => { e.preventDefault(); moveParticipant(i, -1); }}>↑</button>
-            <button style={BTN} title="Move right" onMouseDown={(e) => { e.preventDefault(); moveParticipant(i, 1); }}>↓</button>
-            <button
-              style={{ ...BTN, color: 'var(--vscode-errorForeground, #f48771)' }}
-              title="Remove participant and its steps"
-              onMouseDown={(e) => { e.preventDefault(); removeParticipant(p.id); }}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* Steps */}
-      <div>
-        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Steps</div>
-        {data.steps.length === 0 && (
-          <p style={{ fontSize: 12, opacity: 0.7 }}>No steps yet — add a message.</p>
-        )}
-        {data.steps.map((step, i) => (
+      <div className="lv-body">
+        <div
+          ref={stageRef}
+          className={`lv-stage lv-grid lv-seq-stage${space ? ' lv-seq-space' : ''}`}
+          style={{ backgroundPosition: `${view.x}px ${view.y}px`, backgroundSize: `${20 * view.z}px ${20 * view.z}px`, cursor }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={() => endDrag(false)}
+          onPointerCancel={() => endDrag(true)}
+          onPointerLeave={() => { if (!dragRef.current) { setHover(null); } }}
+        >
           <div
-            key={i}
-            onMouseDown={() => setSelected(i)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3, padding: '2px 4px', borderRadius: 3,
-              background: selected === i ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.08))' : 'transparent',
-            }}
+            className="lv-seq-world"
+            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`, width: layout.width, height: layout.height }}
           >
-            <span style={{ width: 18, textAlign: 'right', fontSize: 10, opacity: 0.5 }}>{i + 1}</span>
-
-            {step.type === 'message' && (
-              <>
-                <select value={step.from} onChange={(e) => setStep(i, { from: e.target.value })} style={{ ...BTN, cursor: 'pointer' }}>
-                  {ids.map((id) => <option key={id} value={id}>{id}</option>)}
-                </select>
-                <select value={step.arrow} onChange={(e) => setStep(i, { arrow: e.target.value as ArrowKind })} title="Arrow style" style={{ ...BTN, cursor: 'pointer' }}>
-                  {(Object.keys(ARROW_LABELS) as ArrowKind[]).map((k) => (
-                    <option key={k} value={k}>{ARROW_LABELS[k]}</option>
-                  ))}
-                </select>
-                <select value={step.to} onChange={(e) => setStep(i, { to: e.target.value })} style={{ ...BTN, cursor: 'pointer' }}>
-                  {ids.map((id) => <option key={id} value={id}>{id}</option>)}
-                </select>
-                <input
-                  value={step.text}
-                  onChange={(e) => setStep(i, { text: e.target.value })}
-                  onBlur={onGestureEnd}
-                  placeholder="message"
-                  style={{ ...FIELD, flex: 1, minWidth: 100, border: '1px solid var(--vscode-panel-border,#444)' }}
-                />
-              </>
+            <Diagram
+              data={data}
+              layout={layout}
+              measure={measure}
+              selected={sel}
+              headDrag={drag?.mode === 'head' && drag.moved ? { id: drag.id, dx: drag.dx } : null}
+              menuFor={menu?.kind === 'participant' ? menu.id : null}
+            />
+            <HoverLayer data={data} layout={layout} hover={editing || menu ? null : hover} drag={drag} />
+            {editBox && (
+              <InlineEditor
+                key={editing?.kind === 'step' ? `s${editing.i}` : `h${editing?.id}`}
+                box={editBox.box}
+                align={editBox.align}
+                initial={editBox.initial}
+                inputRef={inputRef}
+                onCommit={commitEdit}
+                onCancel={cancelEdit}
+              />
             )}
-
-            {step.type === 'note' && (
-              <>
-                <span style={{ fontSize: 11, opacity: 0.7 }}>Note</span>
-                <select value={step.placement} onChange={(e) => setStep(i, { placement: e.target.value as NoteStep['placement'] })} style={{ ...BTN, cursor: 'pointer' }}>
-                  <option value="over">over</option>
-                  <option value="left of">left of</option>
-                  <option value="right of">right of</option>
-                </select>
-                <select
-                  value={step.actors[0]}
-                  onChange={(e) => setStep(i, { actors: [e.target.value, ...step.actors.slice(1)] })}
-                  style={{ ...BTN, cursor: 'pointer' }}
-                >
-                  {ids.map((id) => <option key={id} value={id}>{id}</option>)}
-                </select>
-                <input
-                  value={step.text}
-                  onChange={(e) => setStep(i, { text: e.target.value })}
-                  onBlur={onGestureEnd}
-                  placeholder="note"
-                  style={{ ...FIELD, flex: 1, minWidth: 100, border: '1px solid var(--vscode-panel-border,#444)' }}
-                />
-              </>
-            )}
-
-            {(step.type === 'block' || step.type === 'end') && (
-              <span style={{ fontSize: 11, fontFamily: 'var(--vscode-editor-font-family, monospace)', opacity: 0.8, flex: 1 }}>
-                {step.type === 'end' ? 'end' : `${step.keyword} ${step.label}`.trim()}
-              </span>
-            )}
-
-            {(step.type === 'activate' || step.type === 'deactivate') && (
-              <span style={{ fontSize: 11, fontFamily: 'var(--vscode-editor-font-family, monospace)', opacity: 0.8, flex: 1 }}>
-                {step.type} {step.actor}
-              </span>
-            )}
-
-            <button style={BTN} title="Move up" onMouseDown={(e) => { e.preventDefault(); moveStep(i, -1); }}>↑</button>
-            <button style={BTN} title="Move down" onMouseDown={(e) => { e.preventDefault(); moveStep(i, 1); }}>↓</button>
-            <button
-              style={{ ...BTN, color: 'var(--vscode-errorForeground, #f48771)' }}
-              title="Remove step"
-              onMouseDown={(e) => { e.preventDefault(); removeStep(i); }}
-            >
-              ✕
-            </button>
           </div>
-        ))}
+
+          {showBar && selStep && (
+            <div ref={barRef} className="lv-float lv-ctx lv-seq-ctx" role="toolbar" aria-label="Selected step">
+              <StepBar
+                step={selStep}
+                participants={data.participants}
+                canMoveUp={sel! > 0}
+                canMoveDown={sel! < data.steps.length - 1}
+                onStep={(next) => commit(edit.setStep(dataRef.current, sel!, next))}
+                onMove={moveSelected}
+                onEdit={() => startEdit(sel!)}
+                onDelete={deleteSelected}
+              />
+            </div>
+          )}
+
+          {menu && (
+            <div ref={popRef} className="lv-float lv-pop lv-seq-pop" role="dialog">
+              {menu.kind === 'insert' ? (
+                <InsertMenu onPick={(kind) => insert(menu.idx, kind)} />
+              ) : menuParticipant ? (
+                <ParticipantMenu
+                  participant={menuParticipant}
+                  index={indexOf(menu.id)}
+                  count={data.participants.length}
+                  refs={edit.countRefs(data, menu.id)}
+                  confirm={menu.confirm}
+                  error={menu.error}
+                  onKind={(actor) => commit(edit.setParticipant(dataRef.current, menu.id, { actor }))}
+                  onRename={() => { setMenu(null); setEditing({ kind: 'head', id: menu.id, isNew: false }); }}
+                  onApplyId={(raw) => {
+                    const r = edit.checkId(dataRef.current, raw, menu.id);
+                    if ('error' in r) {
+                      setMenu({ ...menu, error: r.error });
+                      return;
+                    }
+                    commit(edit.renameId(dataRef.current, menu.id, r.id));
+                    setMenu({ kind: 'participant', id: r.id, confirm: false, error: '' });
+                  }}
+                  onMove={(delta) => {
+                    const k = indexOf(menu.id);
+                    commit(edit.moveParticipant(dataRef.current, k, k + delta));
+                  }}
+                  onAskDelete={() => setMenu({ ...menu, confirm: true })}
+                  onCancelDelete={() => setMenu({ ...menu, confirm: false })}
+                  onDelete={() => {
+                    commit(edit.removeParticipant(dataRef.current, menu.id));
+                    setMenu(null);
+                    setSel(null);
+                  }}
+                />
+              ) : null}
+            </div>
+          )}
+
+          <ZoomControls zoom={view.z} onZoomIn={() => zoomBy(1.2)} onZoomOut={() => zoomBy(1 / 1.2)} onFit={fitWhole} />
+          <Hint>
+            <HintText
+              editing={editing}
+              drag={drag}
+              hover={hover}
+              selected={sel !== null}
+              empty={data.participants.length === 0}
+            />
+          </Hint>
+        </div>
+        {codeOpen && <CodePane value={value} onClose={() => setCodeOpen(false)} />}
       </div>
+
+      <HelpDialog open={help} title="Sequence diagram shortcuts" rows={SHORTCUTS} onClose={() => setHelp(false)} />
     </div>
   );
 }
