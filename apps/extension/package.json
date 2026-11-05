@@ -2,7 +2,7 @@
   "name": "lavagna",
   "displayName": "Lavagna",
   "description": "Write structured prompts and plans in markdown, with visual editors for mermaid flowcharts, trees, tables and drawings.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "aylosrd",
   "license": "MIT",
   "icon": "media/icon.png",

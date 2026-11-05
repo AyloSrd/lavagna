@@ -1,71 +1,94 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Stage,
-  Layer,
-  Rect,
-  Ellipse,
-  Line,
-  Arrow,
-  Text as KonvaText,
-  Image as KonvaImage,
-  Transformer,
-} from 'react-konva';
-import type Konva from 'konva';
+import React, { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CanvasImageSource, CanvasImageState } from '../../shared/messages';
 import { saveCanvas, setCanvasImage } from '../hostBridge';
 import type { EditorProps } from '../BlockEditorApp';
+import { HelpDialog, Hint, IconButton, isTyping, ZoomControls } from '../ui/controls';
+import { UndoStack } from '../ui/undoStack';
 import { CanvasChooser } from './CanvasChooser';
 import { ReadOnlyFallback } from './ReadOnlyFallback';
-import { TEXT_FONT_FAMILY, TEXT_LINE_HEIGHT, TextOverlay } from './TextOverlay';
+import { TextOverlay } from './TextOverlay';
+import { CanvasStage, HANDLE_GRAB, SELECTION_PAD } from './canvas/CanvasStage';
+import { flatten, labelInk, measureText } from './canvas/draw';
+import {
+  boxFrom,
+  bounds,
+  center,
+  contains,
+  detachArrows,
+  dist,
+  duplicateMarks,
+  extendDraft,
+  Handle,
+  handlePoints,
+  isDegenerate,
+  linePoints,
+  mapMarks,
+  moveEndpoint,
+  removeMarks,
+  resizeBox,
+  restyle,
+  topHit,
+  translate,
+  unionBounds,
+} from './canvas/geometry';
+import {
+  Box,
+  COLORS,
+  DEFAULT_STYLE,
+  isAttachable,
+  isLine,
+  isShape,
+  isStroke,
+  lookupIn,
+  Mark,
+  MarkStyle,
+  newMarkId,
+  newSeed,
+  Point,
+  TEXT_LINE_HEIGHT,
+  Tool,
+} from './canvas/model';
+import { ReplaceImageMenu, SaveBar } from './canvas/SaveBar';
+import { HELP_ROWS, HINTS, TOOL_KEYS } from './canvas/shortcuts';
+import { StyleBar, StylePatch } from './canvas/StyleBar';
+import { ToolRail } from './canvas/ToolRail';
+import { fitView, toImage, toScreen, View, zoomAround } from './canvas/viewport';
 
 // Draw-on-image canvas. The block is a markdown image line; its PNG is the
-// locked background layer and strokes are drawn on top as LOCAL state only.
-// Nothing touches the document until "Save", which flattens background +
-// strokes into a NEW PNG in .lavagna/media/ and swaps the link (host-side).
-// After the save round-trips, the new image arrives via block.update and the
-// strokes are cleared — they're baked into the background now.
-
-const COLORS = ['#1e1e1e', '#e02424', '#2563eb', '#16a34a', '#f59e0b'];
-
-type Tool = 'select' | 'pen' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'text';
-
-interface Base { id: string; stroke: string; strokeWidth: number; x: number; y: number; }
-type Shape =
-  | (Base & { type: 'rect'; width: number; height: number; fill?: string })
-  | (Base & { type: 'ellipse'; radiusX: number; radiusY: number; fill?: string })
-  | (Base & { type: 'line' | 'arrow' | 'pen'; points: number[] })
-  // `stroke` carries the colour, as for every other shape; Konva Text paints it as `fill`.
-  | (Base & { type: 'text'; text: string; fontSize: number });
-
-const TOOLS: { key: Tool; label: string }[] = [
-  { key: 'select', label: '▲ Select' },
-  { key: 'pen', label: '✏ Pen' },
-  { key: 'rect', label: '▭ Rect' },
-  { key: 'ellipse', label: '◯ Ellipse' },
-  { key: 'line', label: '╱ Line' },
-  { key: 'arrow', label: '↗ Arrow' },
-  { key: 'text', label: 'T Text' },
-];
-
-const FONT_SIZES = [12, 16, 20, 28, 40, 56];
-
-const BTN: React.CSSProperties = {
-  background: 'var(--vscode-button-secondaryBackground, #3a3d41)',
-  color: 'var(--vscode-button-secondaryForeground, #ccc)',
-  border: '1px solid var(--vscode-panel-border, #555)',
-  borderRadius: 4,
-  padding: '3px 8px',
-  fontSize: '0.76em',
-  cursor: 'pointer',
-};
-
-let seq = 0;
-const nextId = () => `s${++seq}`;
+// locked background and marks are drawn on top as LOCAL state only — they stay
+// selectable, movable and restylable until "Save into image", which flattens
+// background + marks into a NEW PNG in .lavagna/media/ and swaps the link
+// (host-side). After the save round-trips, the new image arrives via
+// block.update and the marks are cleared — they're baked into it now.
 
 // A 20000x20000 solid PNG compresses to tens of KB but demands ~1.6 GB of
 // canvas backing store, and its flattened data URL would be hundreds of MB.
 const MAX_IMAGE_EDGE = 8192;
 const MAX_IMAGE_PIXELS = 40_000_000;
+
+/** Below this stage width the rail moves to the bottom (see CSS). */
+const NARROW = 700;
+
+type Drag =
+  | { mode: 'pan'; sx: number; sy: number; vx: number; vy: number }
+  | { mode: 'move'; last: Point; moved: boolean; before: Mark[] }
+  | { mode: 'marquee'; start: Point; base: string[] }
+  | { mode: 'resize'; handle: Handle; from: Box; orig: Mark[]; before: Mark[] }
+  | { mode: 'endpoint'; id: string; index: 0 | 1; before: Mark[] }
+  | { mode: 'draw'; id: string; start: Point; before: Mark[] }
+  | { mode: 'erase' };
+
+interface Editing {
+  id: string;
+  kind: 'text' | 'label';
+  /** Marks as they were before the edit — what undo goes back to. */
+  before: Mark[];
+}
+
+const HANDLE_CURSOR: Record<Handle, string> = {
+  nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
+  n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
+};
 
 export function CanvasEditor({
   value,
@@ -75,28 +98,42 @@ export function CanvasEditor({
   const [background, setBackground] = useState<HTMLImageElement | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [settingImage, setSettingImage] = useState(false);
-  const [shapes, setShapes] = useState<Shape[]>([]);
-  const [tool, setTool] = useState<Tool>('pen');
-  const [color, setColor] = useState(COLORS[1]);
-  const [strokeWidth, setStrokeWidth] = useState(3);
-  const [fill, setFill] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [fontSize, setFontSize] = useState(20);
-  /** Id of the text shape currently being typed into, if any. */
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [marks, setMarks] = useState<Mark[]>([]);
+  const [selIds, setSelIds] = useState<string[]>([]);
+  const [tool, setToolState] = useState<Tool>('pen');
+  const [style, setStyle] = useState<MarkStyle>(DEFAULT_STYLE);
+  const [view, setView] = useState<View>({ x: 0, y: 0, z: 1 });
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [marquee, setMarquee] = useState<Box | null>(null);
+  const [attachId, setAttachId] = useState<string | null>(null);
+  const [erasing, setErasing] = useState<ReadonlySet<string>>(new Set());
+  const [dragging, setDragging] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [spaceDown, setSpaceDown] = useState(false);
+  const [cursor, setCursor] = useState('default');
+  /** Measured width of the style bar, to keep it inside the stage. */
+  const [barWidth, setBarWidth] = useState(0);
+  // Undo lives in a ref; this tick re-renders the undo/redo buttons.
+  const [, setHistoryTick] = useState(0);
 
-  const stageRef = useRef<Konva.Stage | null>(null);
-  const trRef = useRef<Konva.Transformer | null>(null);
-  const drawingId = useRef<string | null>(null);
-  const startPt = useRef<{ x: number; y: number } | null>(null);
-  const shapesRef = useRef(shapes);
-  shapesRef.current = shapes;
+  const history = useRef(new UndoStack<Mark[]>());
+  const viewTouched = useRef(false);
+  const drag = useRef<Drag | null>(null);
+  const stageBox = useRef<HTMLDivElement | null>(null);
+  const surface = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
 
   const alt = value.match(/^ {0,3}!\[([^\]]*)\]/)?.[1] ?? 'canvas';
+  const lookup = useMemo(() => lookupIn(marks), [marks]);
+  const selSet = useMemo(() => new Set(selIds), [selIds]);
+  const selected = useMemo(() => marks.filter((m) => selSet.has(m.id)), [marks, selSet]);
+  const slop = HANDLE_GRAB / view.z;
 
   // (Re)load the background whenever the image link changes — including after
-  // our own Save, whose strokes are then baked in and must be cleared.
+  // our own Save, whose marks are then baked in and must be cleared.
   useEffect(() => {
     if (!imageUri) {
       setBackground(null);
@@ -122,9 +159,13 @@ export function CanvasEditor({
       }
       setBackground(img);
       setLoadFailed(false);
-      setShapes([]);
-      setSelectedId(null);
+      setMarks([]);
+      setSelIds([]);
+      setEditing(null);
       setSaving(false);
+      history.current.clear();
+      setHistoryTick((t) => t + 1);
+      viewTouched.current = false;
     };
     img.onerror = () => {
       if (!cancelled) {
@@ -139,24 +180,68 @@ export function CanvasEditor({
     };
   }, [imageUri, imageState]);
 
-  // Attach the resize transformer to the selected rect/ellipse.
+  // Track the stage's size; the Konva stage is sized to it.
   useEffect(() => {
-    const tr = trRef.current;
-    const stage = stageRef.current;
-    if (!tr || !stage) { return; }
-    const sel = shapes.find(s => s.id === selectedId);
-    const node = selectedId && (sel?.type === 'rect' || sel?.type === 'ellipse')
-      ? stage.findOne<Konva.Node>(`#${selectedId}`)
-      : null;
-    tr.nodes(node ? [node] : []);
-    tr.getLayer()?.batchDraw();
-  }, [selectedId, shapes, tool]);
+    const el = stageBox.current;
+    if (!el) {
+      return;
+    }
+    const ro = new ResizeObserver(([entry]) => {
+      setSize({ w: entry.contentRect.width, h: entry.contentRect.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [background]);
 
+  // Keep the whole image in view until the user pans or zooms themselves.
+  useEffect(() => {
+    if (background && size.w > 50 && size.h > 50 && !viewTouched.current) {
+      setView(fitView(background.naturalWidth, background.naturalHeight, size.w, size.h, size.w < NARROW));
+    }
+  }, [background, size]);
+
+  // The bar's width depends on which controls apply; measure it before paint.
+  useLayoutEffect(() => {
+    const w = barRef.current?.offsetWidth ?? 0;
+    if (w && w !== barWidth) {
+      setBarWidth(w);
+    }
+  });
+
+  // --- history ---------------------------------------------------------------
+  const record = (before: Mark[]) => {
+    history.current.record(before);
+    setHistoryTick((t) => t + 1);
+  };
+  /** Replace the marks as one undoable step. */
+  const change = (next: Mark[]) => {
+    record(marks);
+    setMarks(next);
+  };
+  const undo = () => {
+    const prev = history.current.undo(marks);
+    if (prev) {
+      setMarks(prev);
+      setSelIds((ids) => ids.filter((id) => prev.some((m) => m.id === id)));
+      setHistoryTick((t) => t + 1);
+    }
+  };
+  const redo = () => {
+    const next = history.current.redo(marks);
+    if (next) {
+      setMarks(next);
+      setSelIds((ids) => ids.filter((id) => next.some((m) => m.id === id)));
+      setHistoryTick((t) => t + 1);
+    }
+  };
+
+  // --- image ------------------------------------------------------------------
   /** Set the canvas image; the result arrives as a block.update from the host. */
   const chooseImage = async (source: CanvasImageSource) => {
     if (settingImage || saving) {
       return;
     }
+    setReplaceOpen(false);
     setSettingImage(true);
     const res = await setCanvasImage(source, alt);
     setSettingImage(false);
@@ -165,6 +250,470 @@ export function CanvasEditor({
     }
   };
 
+  const save = () => {
+    // While a text box is open its text isn't in the marks yet, so flattening
+    // now would silently drop it. Commit first (Enter, or click away).
+    if (saving || editing || marks.length === 0 || !background) {
+      return;
+    }
+    const base64 = flatten(background, marks, lookup);
+    if (!base64) {
+      // Tainted or too large: forwarding garbage gave a confusing host error.
+      console.error('[lavagna] could not export the canvas (tainted or too large)');
+      return;
+    }
+    setSaving(true);
+    setSelIds([]);
+    saveCanvas(base64, alt);
+    // `saving` clears when the flattened image arrives via block.update
+    // (or a writeFailed banner shows up).
+  };
+
+  // --- selection edits ----------------------------------------------------
+  const deleteSelected = () => {
+    if (selIds.length) {
+      change(removeMarks(marks, selSet));
+      setSelIds([]);
+    }
+  };
+  const duplicateSelected = () => {
+    if (!selected.length) {
+      return;
+    }
+    const copies = duplicateMarks(selected, marks, 16, newMarkId, newSeed);
+    change([...marks, ...copies]);
+    setSelIds(copies.map((c) => c.id));
+  };
+  const nudge = (dx: number, dy: number) => {
+    const moved = detachArrows(marks, (id) => !selSet.has(id), (m) => selSet.has(m.id));
+    change(moved.map((m) => (selSet.has(m.id) ? translate(m, dx, dy) : m)));
+  };
+  const applyStyle = (patch: StylePatch) => {
+    setStyle((s) => ({ ...s, ...patch }));
+    if (selected.length) {
+      change(marks.map((m) => (selSet.has(m.id) ? restyle(m, patch, measureText) : m)));
+    }
+  };
+
+  const setTool = (t: Tool, keepSelection = false) => {
+    setToolState(t);
+    setReplaceOpen(false);
+    if (t !== 'select' && !keepSelection) {
+      setSelIds([]);
+    }
+  };
+
+  // --- text -------------------------------------------------------------------
+  const startEditing = (m: Mark, before: Mark[] = marks) => {
+    setSelIds([m.id]);
+    setEditing({ id: m.id, kind: m.type === 'text' ? 'text' : 'label', before });
+  };
+  const newText = (p: Point) => {
+    const fontSize = style.fontSize;
+    const m: Mark = {
+      ...style, id: newMarkId(), seed: newSeed(), type: 'text', text: '',
+      x: p.x, y: p.y - (fontSize * TEXT_LINE_HEIGHT) / 2, ...measureText('', fontSize),
+    };
+    setMarks([...marks, m]);
+    startEditing(m, marks);
+  };
+  const commitText = (raw: string) => {
+    if (!editing) {
+      return;
+    }
+    const text = raw.replace(/\s+$/, '');
+    const { id, kind, before } = editing;
+    setEditing(null);
+    let next: Mark[];
+    if (kind === 'text') {
+      // Empty text is not worth keeping — drop the mark instead.
+      next = text
+        ? marks.map((m) => (m.id === id && m.type === 'text' ? { ...m, text, ...measureText(text, m.fontSize) } : m))
+        : removeMarks(marks, new Set([id]));
+    } else {
+      next = marks.map((m) => (m.id === id && isShape(m) ? { ...m, label: text } : m));
+    }
+    setMarks(next);
+    if (JSON.stringify(next) !== JSON.stringify(before)) {
+      record(before);
+    }
+    if (!next.some((m) => m.id === id)) {
+      setSelIds([]);
+    }
+    if (tool === 'text') {
+      setTool('select', true);
+    }
+  };
+  const cancelText = () => {
+    if (!editing) {
+      return;
+    }
+    // Escape puts things back as they were — a brand-new text disappears.
+    setMarks(editing.before);
+    setSelIds((ids) => ids.filter((id) => editing.before.some((m) => m.id === id)));
+    setEditing(null);
+  };
+
+  // --- pointer --------------------------------------------------------------
+  const pointAt = (e: { clientX: number; clientY: number }): { screen: Point; image: Point } => {
+    const r = stageBox.current!.getBoundingClientRect();
+    const screen = { x: e.clientX - r.left, y: e.clientY - r.top };
+    return { screen, image: toImage(view, screen.x, screen.y) };
+  };
+
+  /** A resize handle or line endpoint of the current selection under `p`. */
+  const controlAt = (p: Point): { handle: Handle } | { endpoint: 0 | 1 } | null => {
+    if (!selected.length || tool !== 'select') {
+      return null;
+    }
+    const only = selected.length === 1 ? selected[0] : null;
+    if (only && isLine(only)) {
+      const [a, b] = linePoints(only, lookup);
+      const r = 10 / view.z;
+      return dist(p, a) <= r ? { endpoint: 0 } : dist(p, b) <= r ? { endpoint: 1 } : null;
+    }
+    const handles = handlePoints(unionBounds(selected, lookup), SELECTION_PAD / view.z);
+    for (const [k, q] of Object.entries(handles) as [Handle, Point][]) {
+      if (Math.abs(p.x - q.x) <= slop && Math.abs(p.y - q.y) <= slop) {
+        return { handle: k };
+      }
+    }
+    return null;
+  };
+
+  const attachTargetAt = (p: Point, exclude: (string | undefined)[]) =>
+    topHit(marks, p, slop, (m) => isAttachable(m) && !exclude.includes(m.id))?.id ?? null;
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // An open text box commits on this same mousedown; act on the next one.
+    if (editing || !background) {
+      return;
+    }
+    setReplaceOpen(false);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const { screen, image: p } = pointAt(e);
+    if (e.button === 1 || spaceDown || tool === 'hand') {
+      drag.current = { mode: 'pan', sx: screen.x, sy: screen.y, vx: view.x, vy: view.y };
+      setCursor('grabbing');
+      return;
+    }
+    if (e.button !== 0) {
+      return;
+    }
+
+    if (tool === 'select') {
+      const control = controlAt(p);
+      if (control && 'endpoint' in control) {
+        drag.current = { mode: 'endpoint', id: selected[0].id, index: control.endpoint, before: marks };
+        return;
+      }
+      if (control) {
+        drag.current = { mode: 'resize', handle: control.handle, from: unionBounds(selected, lookup), orig: selected, before: marks };
+        return;
+      }
+      const hit = topHit(marks, p, slop);
+      if (hit) {
+        if (e.shiftKey) {
+          setSelIds(selSet.has(hit.id) ? selIds.filter((id) => id !== hit.id) : [...selIds, hit.id]);
+        } else if (!selSet.has(hit.id)) {
+          setSelIds([hit.id]);
+        }
+        drag.current = { mode: 'move', last: p, moved: false, before: marks };
+      } else {
+        const base = e.shiftKey ? selIds : [];
+        setSelIds(base);
+        drag.current = { mode: 'marquee', start: p, base };
+        setMarquee({ x: p.x, y: p.y, w: 0, h: 0 });
+      }
+      return;
+    }
+    if (tool === 'eraser') {
+      drag.current = { mode: 'erase' };
+      const hit = topHit(marks, p, slop);
+      setErasing(new Set(hit ? [hit.id] : []));
+      return;
+    }
+    if (tool === 'text') {
+      newText(p);
+      return;
+    }
+
+    const base = { ...style, id: newMarkId(), seed: newSeed() };
+    let m: Mark;
+    if (tool === 'rect' || tool === 'ellipse') {
+      m = { ...base, type: tool, x: p.x, y: p.y, w: 0, h: 0, label: '' };
+    } else if (tool === 'line' || tool === 'arrow') {
+      const start = tool === 'arrow' ? attachTargetAt(p, []) : null;
+      m = { ...base, type: tool, points: [p, p], ...(start ? { start } : {}) };
+    } else {
+      m = { ...base, type: tool, points: [p] };
+    }
+    setMarks([...marks, m]);
+    setSelIds([]);
+    drag.current = { mode: 'draw', id: m.id, start: p, before: marks };
+    setDragging(true);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!background) {
+      return;
+    }
+    const { screen, image: p } = pointAt(e);
+    const d = drag.current;
+    if (!d) {
+      if (spaceDown || tool === 'hand') {
+        setCursor('grab');
+      } else if (tool !== 'select') {
+        setCursor(tool === 'text' ? 'text' : 'crosshair');
+      } else {
+        const control = controlAt(p);
+        setCursor(control ? ('handle' in control ? HANDLE_CURSOR[control.handle] : 'pointer') : topHit(marks, p, slop) ? 'move' : 'default');
+      }
+      return;
+    }
+    switch (d.mode) {
+      case 'pan':
+        viewTouched.current = true;
+        setView((v) => ({ ...v, x: d.vx + screen.x - d.sx, y: d.vy + screen.y - d.sy }));
+        break;
+      case 'move': {
+        const dx = p.x - d.last.x;
+        const dy = p.y - d.last.y;
+        if (!d.moved) {
+          if (Math.hypot(dx, dy) * view.z < 3) {
+            return;
+          }
+          d.moved = true;
+          setDragging(true);
+        }
+        d.last = p;
+        // An arrow moved without its shape lets go of it; unselected arrows
+        // attached to moving shapes simply follow.
+        setMarks((prev) =>
+          detachArrows(prev, (id) => !selSet.has(id), (m) => selSet.has(m.id))
+            .map((m) => (selSet.has(m.id) ? translate(m, dx, dy) : m)),
+        );
+        break;
+      }
+      case 'marquee': {
+        const box = boxFrom(d.start, p);
+        setMarquee(box);
+        const inside = marks.filter((m) => contains(box, bounds(m, lookup))).map((m) => m.id);
+        setSelIds([...new Set([...d.base, ...inside])]);
+        break;
+      }
+      case 'resize': {
+        const keepRatio = e.shiftKey || (d.orig.length === 1 && d.orig[0].type === 'text');
+        const mapped = new Map(
+          mapMarks(d.orig, d.from, resizeBox(d.from, d.handle, p, keepRatio), measureText).map((m) => [m.id, m]),
+        );
+        setDragging(true);
+        setMarks((prev) => prev.map((m) => mapped.get(m.id) ?? m));
+        break;
+      }
+      case 'endpoint': {
+        const line = marks.find((m) => m.id === d.id);
+        if (!line || !isLine(line)) {
+          return;
+        }
+        setDragging(true);
+        setMarks((prev) => prev.map((m) => (m.id === d.id && isLine(m) ? moveEndpoint(m, d.index, p) : m)));
+        if (line.type === 'arrow') {
+          setAttachId(attachTargetAt(p, [line.id, d.index === 0 ? line.end : line.start]));
+        }
+        break;
+      }
+      case 'draw': {
+        setMarks((prev) => prev.map((m) => (m.id === d.id ? extendDraft(m, d.start, p, e.shiftKey, view.z) : m)));
+        const draft = marks.find((m) => m.id === d.id);
+        if (draft?.type === 'arrow') {
+          setAttachId(attachTargetAt(p, [draft.start]));
+        }
+        break;
+      }
+      case 'erase': {
+        const hit = topHit(marks, p, slop);
+        if (hit && !erasing.has(hit.id)) {
+          setErasing(new Set([...erasing, hit.id]));
+        }
+        break;
+      }
+    }
+  };
+
+  const onPointerUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    setDragging(false);
+    setMarquee(null);
+    setAttachId(null);
+    if (!d) {
+      return;
+    }
+    switch (d.mode) {
+      case 'pan':
+        setCursor(spaceDown || tool === 'hand' ? 'grab' : 'default');
+        break;
+      case 'move':
+        if (d.moved) {
+          record(d.before);
+        }
+        break;
+      case 'resize':
+        record(d.before);
+        break;
+      case 'endpoint': {
+        if (attachId) {
+          setMarks((prev) => prev.map((m) => (m.id === d.id && isLine(m) ? { ...m, [d.index === 0 ? 'start' : 'end']: attachId } : m)));
+        }
+        record(d.before);
+        break;
+      }
+      case 'draw': {
+        const draft = marks.find((m) => m.id === d.id);
+        if (!draft || isDegenerate(draft, view.z)) {
+          setMarks(d.before);
+          return;
+        }
+        if (draft.type === 'arrow' && attachId && attachId !== draft.start) {
+          setMarks((prev) => prev.map((m) => (m.id === d.id && m.type === 'arrow' ? { ...m, end: attachId } : m)));
+        }
+        record(d.before);
+        // Shapes and arrows come back selected so their style can be tweaked
+        // at once; pen and highlighter stay armed for the next stroke.
+        if (!isStroke(draft)) {
+          setSelIds([draft.id]);
+          setTool('select', true);
+        }
+        break;
+      }
+      case 'erase':
+        if (erasing.size) {
+          change(removeMarks(marks, erasing));
+          setSelIds((ids) => ids.filter((id) => !erasing.has(id)));
+        }
+        setErasing(new Set());
+        break;
+    }
+  };
+
+  const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (tool !== 'select' || editing || !background) {
+      return;
+    }
+    const { image: p } = pointAt(e);
+    const hit = topHit(marks, p, slop);
+    if (hit && (hit.type === 'text' || isShape(hit))) {
+      startEditing(hit);
+    } else if (!hit) {
+      newText(p);
+    }
+  };
+
+  // Wheel must be non-passive to stop the page scrolling, so it's attached by hand.
+  const onWheel = useEffectEvent((e: WheelEvent) => {
+    e.preventDefault();
+    const k = e.deltaMode === 1 ? 16 : 1;
+    viewTouched.current = true;
+    if (e.ctrlKey || e.metaKey) {
+      const { screen } = pointAt(e);
+      setView((v) => zoomAround(v, screen.x, screen.y, v.z * Math.exp(-e.deltaY * k * 0.01)));
+    } else {
+      setView((v) => ({ ...v, x: v.x - e.deltaX * k, y: v.y - e.deltaY * k }));
+    }
+  });
+  useEffect(() => {
+    const el = surface.current;
+    if (!el) {
+      return;
+    }
+    const handler = (e: WheelEvent) => onWheel(e);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [background]);
+
+  const zoomBy = (factor: number) => {
+    viewTouched.current = true;
+    setView((v) => zoomAround(v, size.w / 2, size.h / 2, v.z * factor));
+  };
+  const fit = () => {
+    viewTouched.current = false;
+    if (background) {
+      setView(fitView(background.naturalWidth, background.naturalHeight, size.w, size.h, size.w < NARROW));
+    }
+  };
+
+  // --- keyboard ---------------------------------------------------------------
+  const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if (!background || editing || isTyping(e)) {
+      return;
+    }
+    const key = e.key.toLowerCase();
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === ' ') {
+      e.preventDefault();
+      setSpaceDown(true);
+      setCursor('grab');
+      return;
+    }
+    if (mod) {
+      const actions: Record<string, () => void> = {
+        z: () => (e.shiftKey ? redo() : undo()),
+        y: redo,
+        s: save,
+        d: duplicateSelected,
+        a: () => { setTool('select', true); setSelIds(marks.map((m) => m.id)); },
+      };
+      if (actions[key]) {
+        e.preventDefault();
+        actions[key]();
+      }
+      return;
+    }
+    if (key === 'delete' || key === 'backspace') {
+      e.preventDefault();
+      deleteSelected();
+    } else if (key === 'escape') {
+      setReplaceOpen(false);
+      setSelIds([]);
+      setTool('select');
+    } else if (key === 'enter') {
+      const only = selected.length === 1 ? selected[0] : null;
+      if (only && (only.type === 'text' || isShape(only))) {
+        e.preventDefault();
+        startEditing(only);
+      }
+    } else if (key.startsWith('arrow') && selected.length) {
+      e.preventDefault();
+      const s = e.shiftKey ? 10 : 1;
+      const [dx, dy] = ({ arrowleft: [-s, 0], arrowright: [s, 0], arrowup: [0, -s], arrowdown: [0, s] } as Record<string, number[]>)[key];
+      nudge(dx, dy);
+    } else if (e.key === '?') {
+      setHelpOpen(true);
+    } else if (e.key === '!' || (e.shiftKey && e.code === 'Digit1')) {
+      fit();
+    } else if (TOOL_KEYS[key]) {
+      setTool(TOOL_KEYS[key]);
+    }
+  });
+  const onKeyUp = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === ' ') {
+      setSpaceDown(false);
+      setCursor(tool === 'hand' ? 'grab' : 'default');
+    }
+  });
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => onKeyDown(e);
+    const up = (e: KeyboardEvent) => onKeyUp(e);
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, []);
+
+  // --- render -----------------------------------------------------------------
   // No image yet (or the link is broken): start blank, or choose a file.
   if (imageState === 'empty' || imageState === 'missing') {
     return (
@@ -176,7 +725,6 @@ export function CanvasEditor({
       />
     );
   }
-
   if (loadFailed) {
     return (
       <ReadOnlyFallback
@@ -189,271 +737,140 @@ export function CanvasEditor({
     return <p style={{ padding: 16, fontSize: 12, opacity: 0.7 }}>Loading image…</p>;
   }
 
-  const width = background.naturalWidth;
-  const height = background.naturalHeight;
+  const drawingTool = tool !== 'select' && tool !== 'hand' && tool !== 'eraser';
+  const showStyleBar = !dragging && !editing && !saving && (selected.length > 0 ? tool === 'select' : drawingTool);
+  const styleSource: MarkStyle = selected[0] ?? style;
+  const selBox = selected.length ? unionBounds(selected, lookup) : null;
+  const barHalf = barWidth / 2;
+  const top = selBox ? toScreen(view, selBox.x + selBox.w / 2, selBox.y) : { x: 0, y: 0 };
+  const below = !!selBox && top.y < 70;
+  const anchor = selBox && below ? toScreen(view, selBox.x + selBox.w / 2, selBox.y + selBox.h) : top;
 
-  const pointer = () => stageRef.current?.getPointerPosition() ?? null;
-
-  const onMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (tool === 'select') {
-      if (e.target === e.target.getStage() || e.target.name() === 'bg') { setSelectedId(null); }
-      return;
-    }
-    const p = pointer();
-    if (!p) { return; }
-    if (tool === 'text') {
-      // Place an empty text shape and open the editor on it right away; it is
-      // discarded if nothing gets typed. No drag phase, so drawingId stays null.
-      if (editingId) { return; }
-      const id = nextId();
-      setShapes(s => [...s, { id, type: 'text', x: p.x, y: p.y, stroke: color, strokeWidth, text: '', fontSize }]);
-      setSelectedId(null);
-      setEditingId(id);
-      return;
-    }
-    const id = nextId();
-    startPt.current = p;
-    drawingId.current = id;
-    const base = { id, stroke: color, strokeWidth };
-    if (tool === 'rect') { setShapes(s => [...s, { ...base, type: 'rect', x: p.x, y: p.y, width: 0, height: 0, fill: fill ? color : undefined }]); }
-    else if (tool === 'ellipse') { setShapes(s => [...s, { ...base, type: 'ellipse', x: p.x, y: p.y, radiusX: 0, radiusY: 0, fill: fill ? color : undefined }]); }
-    else if (tool === 'pen') { setShapes(s => [...s, { ...base, type: 'pen', x: 0, y: 0, points: [p.x, p.y] }]); }
-    else { setShapes(s => [...s, { ...base, type: tool, x: 0, y: 0, points: [p.x, p.y, p.x, p.y] }]); }
-  };
-
-  const onMouseMove = () => {
-    const id = drawingId.current;
-    const start = startPt.current;
-    const p = pointer();
-    if (!id || !start || !p) { return; }
-    setShapes(prev => prev.map(s => {
-      if (s.id !== id) { return s; }
-      if (s.type === 'rect') { return { ...s, x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), width: Math.abs(p.x - start.x), height: Math.abs(p.y - start.y) }; }
-      if (s.type === 'ellipse') { return { ...s, x: (start.x + p.x) / 2, y: (start.y + p.y) / 2, radiusX: Math.abs(p.x - start.x) / 2, radiusY: Math.abs(p.y - start.y) / 2 }; }
-      if (s.type === 'pen') { return { ...s, points: [...s.points, p.x, p.y] }; }
-      return { ...s, points: [start.x, start.y, p.x, p.y] };
-    }));
-  };
-
-  const onMouseUp = () => {
-    const id = drawingId.current;
-    drawingId.current = null;
-    startPt.current = null;
-    if (!id) { return; }
-    // Drop degenerate (click-without-drag) shapes.
-    setShapes(prev => prev.filter(s => {
-      if (s.id !== id) { return true; }
-      if (s.type === 'rect') { return s.width > 2 && s.height > 2; }
-      if (s.type === 'ellipse') { return s.radiusX > 1 && s.radiusY > 1; }
-      if (s.type === 'pen') { return s.points.length > 2; }
-      // Text is placed on mousedown, never dragged into existence, so it can't
-      // be degenerate here — its own commit/cancel handles the empty case.
-      if (s.type === 'text') { return true; }
-      const [x1, y1, x2, y2] = s.points;
-      return Math.hypot(x2 - x1, y2 - y1) > 2;
-    }));
-  };
-
-  const update = (id: string, patch: Partial<Shape>) =>
-    setShapes(prev => prev.map(s => (s.id === id ? ({ ...s, ...patch } as Shape) : s)));
-
-  const commonProps = (s: Shape) => ({
-    id: s.id,
-    draggable: tool === 'select',
-    onMouseDown: (e: Konva.KonvaEventObject<MouseEvent>) => { if (tool === 'select') { e.cancelBubble = true; setSelectedId(s.id); } },
-    onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => update(s.id, { x: e.target.x(), y: e.target.y() }),
-  });
-
-  const onTransformEnd = (s: Shape) => (e: Konva.KonvaEventObject<Event>) => {
-    const node = e.target;
-    const sx = node.scaleX();
-    const sy = node.scaleY();
-    node.scaleX(1);
-    node.scaleY(1);
-    if (s.type === 'rect') { update(s.id, { x: node.x(), y: node.y(), width: Math.max(2, node.width() * sx), height: Math.max(2, node.height() * sy) }); }
-    else if (s.type === 'ellipse') { update(s.id, { x: node.x(), y: node.y(), radiusX: Math.max(1, s.radiusX * sx), radiusY: Math.max(1, s.radiusY * sy) }); }
-  };
-
-  const deleteSelected = () => { if (selectedId) { setShapes(s => s.filter(x => x.id !== selectedId)); setSelectedId(null); } };
-  const clearStrokes = () => { setShapes([]); setSelectedId(null); setEditingId(null); };
-
-  const editingShape = shapes.find(s => s.id === editingId && s.type === 'text');
-
-  /** Empty text is not worth keeping — drop the shape instead. */
-  const commitText = (text: string) => {
-    const trimmed = text.trimEnd();
-    setShapes(prev =>
-      trimmed
-        ? prev.map(s => (s.id === editingId && s.type === 'text' ? { ...s, text: trimmed } : s))
-        : prev.filter(s => s.id !== editingId),
-    );
-    setEditingId(null);
-  };
-
-  const cancelText = () => {
-    // Escape on a brand-new (still empty) text discards it.
-    setShapes(prev => prev.filter(s => !(s.id === editingId && s.type === 'text' && !s.text)));
-    setEditingId(null);
-  };
-
-  const setSelectedFontSize = (size: number) => {
-    setFontSize(size);
-    if (selectedId) {
-      setShapes(prev =>
-        prev.map(s => (s.id === selectedId && s.type === 'text' ? { ...s, fontSize: size } : s)),
-      );
-    }
-  };
-
-  const save = () => {
-    // While a text box is open its Konva node is hidden, so flattening now
-    // would silently drop it. Commit first (Enter, or click away).
-    if (saving || editingId || shapesRef.current.length === 0) { return; }
-    setSaving(true);
-    trRef.current?.nodes([]); // hide resize handles from the export
-    const stage = stageRef.current;
-    if (!stage) { setSaving(false); return; }
-    // pixelRatio 1 keeps the image the SAME size across save cycles — a retina
-    // ratio would double the dimensions on every flatten.
-    const dataUrl = stage.toDataURL({ pixelRatio: 1, mimeType: 'image/png' });
-    // Konva returns '' when the canvas is tainted or too large; forwarding
-    // `undefined` produced a confusing Buffer TypeError on the host.
-    const PNG_PREFIX = 'data:image/png;base64,';
-    if (!dataUrl.startsWith(PNG_PREFIX)) {
-      console.error('[lavagna] could not export the canvas (tainted or too large)');
-      setSaving(false);
-      return;
-    }
-    saveCanvas(dataUrl.slice(PNG_PREFIX.length), alt);
-    // `saving` clears when the flattened image arrives via block.update
-    // (or a writeFailed banner shows up).
-  };
+  const editingMark = editing ? marks.find((m) => m.id === editing.id) : undefined;
+  const editorAt = editingMark
+    ? editing!.kind === 'text'
+      ? { ...toScreen(view, (editingMark as Box).x, (editingMark as Box).y), align: 'left' as const }
+      : { ...toScreen(view, center(editingMark as Box).x, center(editingMark as Box).y), align: 'center' as const }
+    : null;
 
   return (
-    <div style={{ padding: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 0 8px', flexWrap: 'wrap' }}>
-        {TOOLS.map(t => (
-          <button key={t.key} style={{ ...BTN, ...(tool === t.key ? { outline: '2px solid var(--vscode-focusBorder, #007acc)' } : {}) }}
-            onMouseDown={e => { e.preventDefault(); setTool(t.key); if (t.key !== 'select') { setSelectedId(null); } }}>{t.label}</button>
-        ))}
-        <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--vscode-panel-border,#555)', margin: '0 2px' }} />
-        {COLORS.map(c => (
-          <button key={c} title="Colour" onMouseDown={e => { e.preventDefault(); setColor(c); }}
-            style={{ width: 16, height: 16, borderRadius: '50%', background: c, cursor: 'pointer', border: color === c ? '2px solid var(--vscode-focusBorder,#007acc)' : '1px solid rgba(0,0,0,0.3)' }} />
-        ))}
-        <input type="range" min={1} max={16} value={strokeWidth} onChange={e => setStrokeWidth(Number(e.target.value))} title="Stroke width" style={{ width: 80 }} />
-        <label style={{ fontSize: '0.76em', display: 'flex', alignItems: 'center', gap: 3 }}>
-          <input type="checkbox" checked={fill} onChange={e => setFill(e.target.checked)} /> fill
-        </label>
-        {(tool === 'text' || shapes.find(s => s.id === selectedId)?.type === 'text') && (
-          <select
-            value={fontSize}
-            onChange={e => setSelectedFontSize(Number(e.target.value))}
-            title="Font size"
-            style={{ ...BTN, cursor: 'pointer' }}
-          >
-            {FONT_SIZES.map(s => (
-              <option key={s} value={s}>{s}px</option>
-            ))}
-          </select>
-        )}
-        <button style={BTN} onMouseDown={e => { e.preventDefault(); deleteSelected(); }} disabled={!selectedId}>Delete</button>
-        <button style={BTN} onMouseDown={e => { e.preventDefault(); clearStrokes(); }} disabled={!shapes.length}>Clear strokes</button>
-        <button
-          style={BTN}
-          disabled={settingImage || saving}
-          title="Replace this canvas image with a file from disk"
-          onMouseDown={e => {
-            e.preventDefault();
-            // Strokes were drawn on the OLD bitmap; a new background invalidates them.
-            if (shapes.length && !window.confirm(
-              `Replace the image? ${shapes.length} unsaved stroke${shapes.length === 1 ? '' : 's'} will be discarded.`)) {
-              return;
-            }
-            void chooseImage('dialog');
-          }}
+    <div className="lv-canvas">
+      <style>{CANVAS_CSS}</style>
+      <div className="lv-canvas-stage lv-grid" ref={stageBox}>
+        <div
+          ref={surface}
+          className="lv-canvas-surface"
+          style={{ cursor: spaceDown && !drag.current ? 'grab' : cursor }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onDoubleClick={onDoubleClick}
         >
-          {settingImage ? 'Choosing…' : '🖼 Replace image'}
-        </button>
-        <div style={{ flex: 1 }} />
-        <button
-          style={{
-            ...BTN,
-            background: 'var(--vscode-button-background, #0e639c)',
-            color: 'var(--vscode-button-foreground, #fff)',
-            opacity: shapes.length && !saving && !editingId ? 1 : 0.5,
-            cursor: shapes.length && !saving && !editingId ? 'pointer' : 'not-allowed',
-          }}
-          title={
-            editingId
-              ? 'Finish the text first (Enter, or click away)'
-              : 'Flatten the drawing into a new PNG and update the link (paint-over: saved strokes become pixels)'
-          }
-          onMouseDown={e => { e.preventDefault(); save(); }}
-        >
-          {saving ? 'Saving…' : '💾 Save'}
-        </button>
-      </div>
-      {shapes.length > 0 && (
-        <p style={{ fontSize: 11, opacity: 0.6, margin: '0 0 8px' }}>
-          {shapes.length} unsaved mark{shapes.length === 1 ? '' : 's'} — Save flattens them into the image (can't be un-drawn afterwards).
-        </p>
-      )}
-      {/* Positioned wrapper so the text overlay can sit in stage coordinates.
-          The stage is unscaled and 1:1 with this box, so shape x/y map directly. */}
-      <div style={{ position: 'relative', width, height }}>
-      <Stage
-        ref={stageRef}
-        width={width}
-        height={height}
-        style={{ cursor: tool === 'select' ? 'default' : 'crosshair', touchAction: 'none' }}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-      >
-        <Layer>
-          <KonvaImage name="bg" image={background} x={0} y={0} width={width} height={height} listening={tool === 'select'} />
-          {shapes.map(s => {
-            if (s.type === 'rect') { return <Rect key={s.id} {...commonProps(s)} x={s.x} y={s.y} width={s.width} height={s.height} stroke={s.stroke} strokeWidth={s.strokeWidth} fill={s.fill} onTransformEnd={onTransformEnd(s)} />; }
-            if (s.type === 'ellipse') { return <Ellipse key={s.id} {...commonProps(s)} x={s.x} y={s.y} radiusX={s.radiusX} radiusY={s.radiusY} stroke={s.stroke} strokeWidth={s.strokeWidth} fill={s.fill} onTransformEnd={onTransformEnd(s)} />; }
-            if (s.type === 'arrow') { return <Arrow key={s.id} {...commonProps(s)} x={s.x} y={s.y} points={s.points} stroke={s.stroke} strokeWidth={s.strokeWidth} fill={s.stroke} hitStrokeWidth={12} />; }
-            if (s.type === 'text') {
-              return (
-                <KonvaText
-                  key={s.id}
-                  {...commonProps(s)}
-                  x={s.x}
-                  y={s.y}
-                  text={s.text}
-                  fontSize={s.fontSize}
-                  fontFamily={TEXT_FONT_FAMILY}
-                  lineHeight={TEXT_LINE_HEIGHT}
-                  fill={s.stroke}
-                  // Hidden while the overlay is open, so the text isn't drawn twice.
-                  visible={editingId !== s.id}
-                  onDblClick={() => setEditingId(s.id)}
-                  onDblTap={() => setEditingId(s.id)}
-                />
-              );
-            }
-            return <Line key={s.id} {...commonProps(s)} x={s.x} y={s.y} points={s.points} stroke={s.stroke} strokeWidth={s.strokeWidth} lineCap="round" lineJoin="round" hitStrokeWidth={12} />;
-          })}
-          <Transformer ref={trRef} rotateEnabled={false} ignoreStroke keepRatio={false} />
-        </Layer>
-      </Stage>
-      {editingShape?.type === 'text' && (
-        <TextOverlay
-          key={editingShape.id}
-          x={editingShape.x}
-          y={editingShape.y}
-          fontSize={editingShape.fontSize}
-          color={editingShape.stroke}
-          initialText={editingShape.text}
-          onCommit={commitText}
-          onCancel={cancelText}
+          {size.w > 0 && (
+            <CanvasStage
+              width={size.w}
+              height={size.h}
+              view={view}
+              image={background}
+              marks={marks}
+              lookup={lookup}
+              selected={selected}
+              hideTextOf={editing?.id ?? null}
+              fading={erasing}
+              marquee={marquee}
+              attachTarget={attachId ? lookup(attachId) ?? null : null}
+              showHandles={!editing && !saving && (tool === 'select' || dragging)}
+            />
+          )}
+        </div>
+
+        <ToolRail
+          tool={tool}
+          onTool={(t) => setTool(t)}
+          replaceOpen={replaceOpen}
+          onReplaceImage={() => setReplaceOpen((o) => !o)}
         />
-      )}
+        {replaceOpen && <ReplaceImageMenu unsaved={marks.length} busy={settingImage || saving} onChoose={(s) => void chooseImage(s)} />}
+
+        {showStyleBar && (
+          <StyleBar
+            style={styleSource}
+            types={selected.length ? selected.map((m) => m.type) : [tool as Mark['type']]}
+            selection={selected.length > 0}
+            placement={{
+              docked: !selBox,
+              left: Math.max(barHalf + 8, Math.min(size.w - barHalf - 8, anchor.x)),
+              top: anchor.y,
+              below,
+            }}
+            barRef={barRef}
+            onChange={applyStyle}
+            onDuplicate={duplicateSelected}
+            onDelete={deleteSelected}
+          />
+        )}
+
+        <div className="lv-float lv-canvas-history">
+          <IconButton icon="undo" label="Undo" shortcut="⌘Z" disabled={!history.current.canUndo} onPress={undo} />
+          <IconButton icon="redo" label="Redo" shortcut="⇧⌘Z" disabled={!history.current.canRedo} onPress={redo} />
+          <IconButton icon="help" label="Keyboard shortcuts" shortcut="?" onPress={() => setHelpOpen(true)} />
+        </div>
+
+        <ZoomControls zoom={view.z} onZoomIn={() => zoomBy(1.2)} onZoomOut={() => zoomBy(1 / 1.2)} onFit={fit} />
+        <Hint>{HINTS[tool === 'select' && selected.length ? 'selected' : tool]}</Hint>
+        <SaveBar
+          count={marks.length}
+          saving={saving}
+          editingText={!!editing}
+          onDiscard={() => { change([]); setSelIds([]); }}
+          onSave={save}
+        />
+
+        {editing && editingMark && editorAt && (
+          <TextOverlay
+            key={editing.id}
+            x={editorAt.x}
+            y={editorAt.y}
+            align={editorAt.align}
+            fontSize={editingMark.fontSize * view.z}
+            color={editing.kind === 'label' ? labelInk(editingMark) : COLORS[editingMark.color]}
+            initialText={editingMark.type === 'text' ? editingMark.text : isShape(editingMark) ? editingMark.label : ''}
+            onCommit={commitText}
+            onCancel={cancelText}
+          />
+        )}
       </div>
+      <HelpDialog open={helpOpen} title="Canvas shortcuts" rows={HELP_ROWS} onClose={() => setHelpOpen(false)} />
     </div>
   );
 }
+
+const CANVAS_CSS = `
+.lv-canvas { position: relative; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.lv-canvas-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.lv-canvas-surface { position: absolute; inset: 0; touch-action: none; }
+.lv-canvas-rail {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%); z-index: 10;
+  display: flex; flex-direction: column; gap: 2px; padding: 4px;
+}
+.lv-canvas-rail .lv-icon { width: 32px; height: 32px; }
+.lv-canvas-replace { left: 58px; top: 50%; transform: translateY(-50%); }
+.lv-canvas-replace button:disabled { opacity: 0.5; cursor: default; }
+.lv-canvas-warn { margin: 4px 8px; max-width: 220px; font-size: 11.5px; color: var(--vscode-descriptionForeground); }
+.lv-canvas-docked { top: 12px; left: 50%; transform: translateX(-50%); }
+.lv-canvas-history { position: absolute; top: 12px; right: 12px; z-index: 10; display: flex; gap: 2px; padding: 2px; }
+.lv-canvas-savebar { position: absolute; right: 12px; bottom: 12px; z-index: 10; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; }
+.lv-canvas-count { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+.lv-canvas-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--vscode-editorWarning-foreground, #cca700); }
+@media (max-width: ${NARROW}px) {
+  .lv-canvas-rail { top: auto; bottom: 8px; left: 8px; right: 8px; transform: none; flex-direction: row; overflow-x: auto; }
+  .lv-canvas-rail .lv-sep--h { width: 1px; height: auto; margin: 4px 3px; }
+  .lv-canvas-replace { left: 8px; top: auto; bottom: 56px; transform: none; }
+  .lv-canvas-history { top: 8px; left: 8px; right: auto; }
+  .lv-canvas-savebar { top: 8px; right: 8px; bottom: auto; }
+  .lv-canvas-count-text { display: none; }
+  .lv-canvas-docked { top: 52px; }
+  .lv-canvas .lv-zoom { display: none; }
+}
+`;
