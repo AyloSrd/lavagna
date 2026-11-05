@@ -2,10 +2,9 @@ import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { MediaPort } from '../../application/ports/MediaPort';
 import { log } from '../logging/log';
+import { assertMediaFile, MEDIA_DIR, realMediaDir } from '../paths/mediaPath';
 import { ContainmentError } from '../paths/realPath';
 import { createFileExclusive, inspectWriteTarget, WriteTarget } from '../paths/writeTarget';
-
-const MEDIA_DIR = ['.lavagna', 'media'];
 
 /**
  * Writes media files into `.lavagna/media/` within the workspace.
@@ -53,6 +52,46 @@ export class VsCodeMediaRepository implements MediaPort {
       throw error;
     }
     return relative;
+  }
+
+  async listFiles(): Promise<string[]> {
+    const dir = await this._guard(() => realMediaDir(this._localRoot()));
+    if (!dir) {
+      return [];
+    }
+    const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dir));
+    // Exactly `File`: a symlink to a file reports `File | SymbolicLink`.
+    return entries.filter(([, type]) => type === vscode.FileType.File).map(([name]) => name);
+  }
+
+  async trash(name: string): Promise<void> {
+    const target = await this._guard(() => assertMediaFile(name, this._localRoot()));
+    await vscode.workspace.fs.delete(vscode.Uri.file(target), { useTrash: true });
+  }
+
+  /**
+   * Cleaning reads and deletes on the local disk only, where the symlink checks
+   * mean something; a virtual workspace may not even have a trash.
+   */
+  private _localRoot(): string {
+    if (this._workspaceRoot.scheme !== 'file') {
+      throw new Error('Lavagna: unused media can only be cleaned in a local folder.');
+    }
+    return this._workspaceRoot.fsPath;
+  }
+
+  private async _guard<T>(check: () => Promise<T>): Promise<T> {
+    try {
+      return await check();
+    } catch (error) {
+      if (error instanceof ContainmentError) {
+        log(`media: ${error.message}`);
+        throw new Error(
+          'Lavagna: refusing to clean media — .lavagna/media must be a real folder inside the workspace, with no symbolic links, and only image files directly in it are removed.',
+        );
+      }
+      throw error;
+    }
   }
 
   /** A folder on the local disk, where git can have committed symlinks. */

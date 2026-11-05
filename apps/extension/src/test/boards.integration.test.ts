@@ -5,6 +5,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { VsCodeBoardRepository } from '../infrastructure/boards/VsCodeBoardRepository';
 import { createBoard } from '../application/usecases/boards';
+import { findUnusedMediaFiles } from '../application/usecases/media';
+import { VsCodeMediaRepository } from '../infrastructure/media/VsCodeMediaRepository';
 import { BoardsTreeProvider } from '../presentation/providers/BoardsTreeProvider';
 
 suite('VsCodeBoardRepository (integration)', () => {
@@ -61,5 +63,50 @@ suite('BoardsTreeProvider — opening a board', () => {
     const arg = item.command?.arguments?.[0] as vscode.Uri;
     assert.ok(arg, 'no URI argument');
     assert.strictEqual(arg.fsPath, board.fsPath);
+  });
+});
+
+suite('Clean unused media (integration)', () => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lavagna-media-test-'));
+  const root = vscode.Uri.file(tmpRoot);
+  const mediaDir = path.join(tmpRoot, '.lavagna', 'media');
+
+  test('listFiles returns [] before .lavagna/media exists', async () => {
+    assert.deepStrictEqual(await new VsCodeMediaRepository(root).listFiles(), []);
+  });
+
+  test('listFiles skips folders and symlinks', async () => {
+    fs.mkdirSync(path.join(mediaDir, 'sub.png'), { recursive: true });
+    fs.writeFileSync(path.join(mediaDir, 'a.png'), 'x');
+    fs.symlinkSync(path.join(mediaDir, 'a.png'), path.join(mediaDir, 'link.png'));
+    assert.deepStrictEqual((await new VsCodeMediaRepository(root).listFiles()).sort(), ['a.png']);
+  });
+
+  test('an open board with an unsaved link keeps its image', async () => {
+    fs.writeFileSync(path.join(mediaDir, 'fresh.png'), 'x');
+    const boardPath = path.join(tmpRoot, '.lavagna', 'notes.lavagna.md');
+    fs.writeFileSync(boardPath, '# Notes\n');
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(boardPath));
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(doc.uri, new vscode.Position(1, 0), '![canvas](media/fresh.png)\n');
+    assert.ok(await vscode.workspace.applyEdit(edit));
+    assert.ok(doc.isDirty);
+    const unused = await findUnusedMediaFiles(new VsCodeMediaRepository(root), new VsCodeBoardRepository(root));
+    assert.deepStrictEqual(unused, ['a.png']);
+  });
+});
+
+suite('VsCodeBoardRepository.listAll (integration)', () => {
+  test('[] when .lavagna does not exist', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lavagna-listall-'));
+    assert.deepStrictEqual(await new VsCodeBoardRepository(vscode.Uri.file(tmp)).listAll(), []);
+  });
+
+  test('a symlinked board fails the listing instead of being skipped', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lavagna-listall-'));
+    fs.mkdirSync(path.join(tmp, '.lavagna'));
+    fs.writeFileSync(path.join(tmp, 'elsewhere.md'), '![a](media/a.png)');
+    fs.symlinkSync(path.join(tmp, 'elsewhere.md'), path.join(tmp, '.lavagna', 'linked.lavagna.md'));
+    await assert.rejects(new VsCodeBoardRepository(vscode.Uri.file(tmp)).listAll(), /symbolic link/);
   });
 });

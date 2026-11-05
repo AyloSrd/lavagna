@@ -7,4 +7,12 @@ export class NoopMediaRepository implements MediaPort {
   async save(_bytes: Uint8Array, _ext: string): Promise<string> {
     throw new MediaUnavailableError();
   }
+
+  async listFiles(): Promise<string[]> {
+    return [];
+  }
+
+  async trash(_name: string): Promise<void> {
+    throw new MediaUnavailableError();
+  }
 }

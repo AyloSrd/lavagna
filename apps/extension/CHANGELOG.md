@@ -1,5 +1,15 @@
 # Change Log
 
+## Unreleased
+
+### Added
+
+- **Clean Unused Media:** a brush in the Lavagna panel's title bar finds the
+  images in `.lavagna/media/` that no board mentions — unsaved edits in open
+  boards included — lists every one so you can untick any to keep, and after
+  a final confirmation moves the rest to the trash. If a board can't be read,
+  or is a symbolic link, nothing is deleted.
+
 ## 0.3.0
 
 ### Changed

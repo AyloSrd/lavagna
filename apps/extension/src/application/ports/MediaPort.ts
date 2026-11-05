@@ -8,6 +8,15 @@ export interface MediaPort {
    * Throws `MediaUnavailableError` when `isAvailable` is false.
    */
   save(bytes: Uint8Array, ext: string): Promise<string>;
+
+  /**
+   * Names of the plain files directly in `.lavagna/media/` (no folders, no
+   * links); empty when the folder doesn't exist.
+   */
+  listFiles(): Promise<string[]>;
+
+  /** Move `.lavagna/media/<name>` to the trash. Refuses anything but an image file directly in that folder. */
+  trash(name: string): Promise<void>;
 }
 
 export class MediaUnavailableError extends Error {

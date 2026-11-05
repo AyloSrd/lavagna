@@ -9,12 +9,20 @@ export class NoopBoardRepository implements BoardRepositoryPort {
     return [];
   }
 
+  async listAll(): Promise<Board[]> {
+    return [];
+  }
+
   async create(): Promise<Board> {
     throw new Error('Open a folder to create Lavagna boards.');
   }
 
   async delete(): Promise<void> {
     // nothing to delete
+  }
+
+  async readText(): Promise<string> {
+    return '';
   }
 
   async existingFileNames(): Promise<string[]> {
