@@ -1,4 +1,5 @@
 import { linePoints } from './geometry';
+import { imageAsset } from './images';
 import { COLORS, isLine, isShape, isStroke, Lookup, Mark, strokeWidth, TEXT_FONT_FAMILY, TEXT_LINE_HEIGHT } from './model';
 import {
   arrowHead,
@@ -128,6 +129,12 @@ export function drawMark(ctx: CanvasRenderingContext2D, m: Mark, lookup: Lookup,
     }
     trace(ctx, smoothPath(m.points));
     ctx.stroke();
+  } else if (m.type === 'image') {
+    const image = imageAsset(m.asset);
+    if (image) {
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(image, m.x, m.y, m.w, m.h);
+    }
   } else if (!opts.hideText) {
     drawLines(ctx, m.text, m.x, m.y, m.fontSize, 'left');
   }

@@ -24,11 +24,16 @@ const GROUP_STARTS = new Set<Tool>(['pen', 'rect', 'eraser']);
 export function ToolRail({
   tool,
   onTool,
+  onInsertImage,
+  inserting,
   onReplaceImage,
   replaceOpen,
 }: {
   tool: Tool;
   onTool(t: Tool): void;
+  /** Place a picture on top of the canvas; not a tool, it acts at once. */
+  onInsertImage(): void;
+  inserting: boolean;
   onReplaceImage(): void;
   replaceOpen: boolean;
 }) {
@@ -48,6 +53,7 @@ export function ToolRail({
         </React.Fragment>
       ))}
       <Separator horizontal />
+      <IconButton icon="imageAdd" label="Insert an image" shortcut="I" keyHint="I" disabled={inserting} onPress={onInsertImage} />
       <IconButton icon="image" label="Replace the image" pressed={replaceOpen} onPress={onReplaceImage} />
     </div>
   );

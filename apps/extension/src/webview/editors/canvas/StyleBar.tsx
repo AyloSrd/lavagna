@@ -31,6 +31,7 @@ export function StyleBar({
   onChange,
   onDuplicate,
   onDelete,
+  onReorder,
 }: {
   style: MarkStyle;
   types: MarkType[];
@@ -41,6 +42,7 @@ export function StyleBar({
   onChange(patch: StylePatch): void;
   onDuplicate(): void;
   onDelete(): void;
+  onReorder(to: 'front' | 'back'): void;
 }) {
   const show = styleControls(types);
   // Docked placement is CSS (it moves in the narrow layout); floating follows the selection.
@@ -59,10 +61,10 @@ export function StyleBar({
       role="toolbar"
       aria-label="Style"
     >
-      <Swatches colors={COLOR_OPTIONS} value={style.color} onChange={(color) => onChange({ color })} />
+      {show.color && <Swatches colors={COLOR_OPTIONS} value={style.color} onChange={(color) => onChange({ color })} />}
       {show.width && (
         <>
-          <Separator />
+          {show.color && <Separator />}
           <Segmented
             label="Stroke width"
             value={style.width}
@@ -126,7 +128,9 @@ export function StyleBar({
       )}
       {selection && (
         <>
-          <Separator />
+          {(show.color || show.width || show.fill || show.lineStyle || show.fontSize) && <Separator />}
+          <IconButton icon="front" label="Bring to front" shortcut="]" onPress={() => onReorder('front')} />
+          <IconButton icon="back" label="Send to back" shortcut="[" onPress={() => onReorder('back')} />
           <IconButton icon="duplicate" label="Duplicate" shortcut="⌘D" onPress={onDuplicate} />
           <IconButton icon="trash" label="Delete" shortcut="⌫" danger onPress={onDelete} />
         </>

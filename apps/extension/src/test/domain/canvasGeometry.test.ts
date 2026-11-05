@@ -143,6 +143,11 @@ suite('resizing', () => {
     assert.deepStrictEqual(r, { x1: 0, y1: 0, x2: 200, y2: 100 });
   });
 
+  test('keepRatio follows the axis that moved further, so a sideways drag can shrink', () => {
+    assert.deepStrictEqual(resizeBox(from, 'se', { x: 50, y: 50 }, true), { x1: 0, y1: 0, x2: 50, y2: 25 });
+    assert.deepStrictEqual(resizeBox(from, 'nw', { x: 0, y: 40 }, true), { x1: 80, y1: 40, x2: 100, y2: 50 });
+  });
+
   test('mapMarks scales boxes and points, and text by its height', () => {
     const marks: Mark[] = [rect('r', 0, 0, 100, 50), pen('p', [[0, 0], [100, 50]]), text('t', 0, 0, 'hi')];
     const out = mapMarks(marks, from, { x1: 0, y1: 0, x2: 200, y2: 100 }, (_t, fs) => ({ w: fs, h: fs }));
@@ -208,8 +213,10 @@ suite('editing', () => {
   });
 
   test('style controls follow what is selected', () => {
-    assert.deepStrictEqual(styleControls(['text']), { width: false, fill: false, lineStyle: false, fontSize: true });
-    assert.deepStrictEqual(styleControls(['pen']), { width: true, fill: false, lineStyle: false, fontSize: false });
-    assert.deepStrictEqual(styleControls(['rect', 'arrow']), { width: true, fill: true, lineStyle: true, fontSize: true });
+    assert.deepStrictEqual(styleControls(['text']), { color: true, width: false, fill: false, lineStyle: false, fontSize: true });
+    assert.deepStrictEqual(styleControls(['pen']), { color: true, width: true, fill: false, lineStyle: false, fontSize: false });
+    assert.deepStrictEqual(styleControls(['rect', 'arrow']), { color: true, width: true, fill: true, lineStyle: true, fontSize: true });
+    assert.deepStrictEqual(styleControls(['image']), { color: false, width: false, fill: false, lineStyle: false, fontSize: false });
+    assert.strictEqual(styleControls(['image', 'pen']).color, true);
   });
 });

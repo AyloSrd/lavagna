@@ -83,6 +83,24 @@ export function parseWebviewMessage(raw: unknown): ParsedMessage {
       return { ok: true, msg: { type: 'canvas.setImage', token, requestId, alt, source } };
     }
 
+    case 'canvas.insertImage': {
+      const token = str(o, 'token', MAX_ID_CHARS);
+      const requestId = str(o, 'requestId', MAX_ID_CHARS);
+      const src = o.source;
+      if (token === undefined || requestId === undefined || typeof src !== 'object' || src === null || Array.isArray(src)) {
+        return bad('canvas.insertImage: malformed token, requestId or source');
+      }
+      const s = src as Obj;
+      if (s.kind === 'dialog') {
+        return { ok: true, msg: { type: 'canvas.insertImage', token, requestId, source: { kind: 'dialog' } } };
+      }
+      const dataBase64 = str(s, 'dataBase64', MAX_IMAGE_BASE64_CHARS);
+      if (s.kind !== 'data' || dataBase64 === undefined) {
+        return bad('canvas.insertImage: malformed source (or the image too long)');
+      }
+      return { ok: true, msg: { type: 'canvas.insertImage', token, requestId, source: { kind: 'data', dataBase64 } } };
+    }
+
     case 'clipboard.write': {
       const token = str(o, 'token', MAX_ID_CHARS);
       // Longer text is cut rather than refused, as it always was.

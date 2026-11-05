@@ -195,7 +195,8 @@ export function handlePoints(b: Box, pad: number): Record<Handle, Point> {
 
 /**
  * The box after dragging `handle` of `from` to `p`. With `keepRatio`, corners
- * scale uniformly and edges scale around the opposite edge's centre.
+ * scale uniformly (by whichever axis changed more) and edges scale around the
+ * opposite edge's centre.
  * The result may have a negative width/height (dragged past the other side).
  */
 export function resizeBox(from: Box, handle: Handle, p: Point, keepRatio: boolean): { x1: number; y1: number; x2: number; y2: number } {
@@ -209,7 +210,9 @@ export function resizeBox(from: Box, handle: Handle, p: Point, keepRatio: boolea
   if (keepRatio) {
     const sx = Math.abs((x2 - x1) / (from.w || 1));
     const sy = Math.abs((y2 - y1) / (from.h || 1));
-    const s = handle.length === 2 ? Math.max(sx, sy) : handle === 'e' || handle === 'w' ? sx : sy;
+    // A corner follows the axis the pointer moved further along, so a drag
+    // sideways shrinks as readily as it grows.
+    const s = handle.length === 2 ? (Math.abs(sx - 1) >= Math.abs(sy - 1) ? sx : sy) : handle === 'e' || handle === 'w' ? sx : sy;
     const nw = from.w * s;
     const nh = from.h * s;
     if (handle.includes('w')) { x1 = ax2 - nw; } else if (handle.includes('e')) { x2 = from.x + nw; } else { const c = from.x + from.w / 2; x1 = c - nw / 2; x2 = c + nw / 2; }
@@ -247,6 +250,31 @@ export function mapMarks(
     }
     return { ...o, x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax), h: Math.abs(by - ay) };
   });
+}
+
+/**
+ * Where an inserted picture of natural size `natural` goes on a canvas of size
+ * `canvas`: shrunk to fit inside it with its proportions kept (never enlarged —
+ * a small picture stays sharp), centred on `at` (the canvas centre by
+ * default), and moved back inside where that would cross an edge.
+ */
+export function placeImage(natural: { w: number; h: number }, canvas: { w: number; h: number }, at?: Point): Box {
+  const k = Math.min(1, canvas.w / (natural.w || 1), canvas.h / (natural.h || 1));
+  const w = natural.w * k;
+  const h = natural.h * k;
+  const c = at ?? { x: canvas.w / 2, y: canvas.h / 2 };
+  const clamp = (v: number, max: number) => Math.max(0, Math.min(max, v));
+  return { x: clamp(c.x - w / 2, canvas.w - w), y: clamp(c.y - h / 2, canvas.h - h), w, h };
+}
+
+/**
+ * Move the marks in `ids` to the top (`front`) or bottom (`back`) of the
+ * stack, keeping their order among themselves.
+ */
+export function reorder(marks: readonly Mark[], ids: ReadonlySet<string>, to: 'front' | 'back'): Mark[] {
+  const moving = marks.filter((m) => ids.has(m.id));
+  const rest = marks.filter((m) => !ids.has(m.id));
+  return to === 'front' ? [...rest, ...moving] : [...moving, ...rest];
 }
 
 /** Snap the vector a→b to the nearest 15°. */

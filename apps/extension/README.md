@@ -28,7 +28,7 @@ is in the right-click menu under *Insert Block*):
 | **Sequence diagram** | Who talks to whom, in order: participants, messages and notes |
 | **Tree** | An outliner — Enter for a new line, Tab / Shift+Tab to indent |
 | **Table** | A spreadsheet-like grid with rows, columns and alignment |
-| **Canvas** | Draw on a blank page or on top of an image: pen, shapes, arrows, text |
+| **Canvas** | Draw on a blank page or on top of an image: pen, shapes, arrows, text, and more images |
 | **File reference** | A link to a file (or lines in it) from your project |
 | **Spiral ꩜** | A small marker to flag a spot — a question, a to-do |
 
@@ -38,7 +38,10 @@ them like any other edit. Diagrams you wrote by hand open too, and stay exactly
 as you wrote them; anything the editor can't handle safely opens read-only.
 
 Canvas images are saved in `.lavagna/media/`; your drawing is only written
-when you click **Save**. Each Save writes a new image, so the brush in the
+when you click **Save**. To add a picture on top, use **Insert an image** in
+the tool rail, paste one, or drop a file on the canvas (in VS Code, hold
+`Shift` while dropping); it shrinks to fit the canvas and stays movable until
+Save. Each Save writes a new image, so the brush in the
 Lavagna panel's title bar (**Clean Unused Media**) lists the images no board
 mentions any more; untick any you want to keep, confirm, and the rest go to
 the trash.
