@@ -1,5 +1,22 @@
 # Change Log
 
+## Unreleased
+
+### Added
+
+- **Canvas: insert images.** Add pictures on top of a canvas with the
+  **Insert an image** button (or `I`), by pasting one (`⌘V`), or by dropping a
+  file on it. A picture larger than the canvas shrinks to fit inside it,
+  proportions kept; a smaller one keeps its size. It stays a mark — move,
+  resize (proportions locked, `⇧` frees them), reorder with `]` / `[`, delete,
+  undo — until **Save into image** bakes it in. Nothing is written until Save,
+  and only PNG, JPEG, GIF, WebP or BMP files are accepted.
+
+### Changed
+
+- **Canvas:** dragging a corner with proportions locked now follows the axis
+  you moved more, so a sideways drag shrinks as well as grows.
+
 ## 0.4.0
 
 ### Added

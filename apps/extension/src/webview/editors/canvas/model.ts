@@ -60,16 +60,24 @@ export interface LineMark extends MarkBase {
   end?: string;
 }
 export interface StrokeMark extends MarkBase { type: 'pen' | 'marker'; points: Point[]; }
+/**
+ * A picture placed on the canvas. `asset` names the decoded image in the
+ * editor's registry (images.ts): the pixels never sit in the mark, so undo
+ * snapshots and comparisons stay cheap. The style fields are carried but unused.
+ */
+export interface ImageMark extends MarkBase, Box { type: 'image'; asset: string; }
 
-export type Mark = ShapeMark | TextMark | LineMark | StrokeMark;
+export type Mark = ShapeMark | TextMark | LineMark | StrokeMark | ImageMark;
 export type MarkType = Mark['type'];
 
-export type Tool = 'select' | 'hand' | 'eraser' | MarkType;
+/** Images are inserted, not drawn, so there is no image tool. */
+export type Tool = 'select' | 'hand' | 'eraser' | Exclude<MarkType, 'image'>;
 
 export const isShape = (m: Mark): m is ShapeMark => m.type === 'rect' || m.type === 'ellipse';
 export const isLine = (m: Mark): m is LineMark => m.type === 'line' || m.type === 'arrow';
 export const isStroke = (m: Mark): m is StrokeMark => m.type === 'pen' || m.type === 'marker';
-export const hasBox = (m: Mark): m is ShapeMark | TextMark => isShape(m) || m.type === 'text';
+export const hasBox = (m: Mark): m is ShapeMark | TextMark | ImageMark =>
+  isShape(m) || m.type === 'text' || m.type === 'image';
 /** What an arrow end may attach to. */
 export const isAttachable = hasBox;
 
@@ -93,7 +101,8 @@ export const newSeed = (): number => Math.floor(Math.random() * 2 ** 31);
 export function styleControls(types: readonly MarkType[]) {
   const any = (f: (t: MarkType) => boolean) => types.some(f);
   return {
-    width: any((t) => t !== 'text'),
+    color: any((t) => t !== 'image'),
+    width: any((t) => t !== 'text' && t !== 'image'),
     fill: any((t) => t === 'rect' || t === 'ellipse'),
     lineStyle: any((t) => t === 'rect' || t === 'ellipse' || t === 'line' || t === 'arrow'),
     fontSize: any((t) => t === 'text' || t === 'rect' || t === 'ellipse'),

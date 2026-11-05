@@ -2,6 +2,7 @@ import type {
   BlockInitMessage,
   CanvasImageSource,
   CanvasImageState,
+  CanvasInsertSource,
   HostToWebview,
 } from '../shared/messages';
 import { postToHost } from './vscodeApi';
@@ -32,6 +33,16 @@ let blockHandler: BlockLifecycleHandler | null = null;
 
 const settingImage = new Map<string, (result: SetImageResult) => void>();
 
+export interface InsertImageResult {
+  ok: boolean;
+  /** The checked image, ready to draw. */
+  dataUri?: string;
+  /** Absent when the user simply cancelled the file dialog. */
+  message?: string;
+}
+
+const insertingImage = new Map<string, (result: InsertImageResult) => void>();
+
 function onMessage(event: MessageEvent<HostToWebview>): void {
   const msg = event.data;
   switch (msg.type) {
@@ -47,6 +58,10 @@ function onMessage(event: MessageEvent<HostToWebview>): void {
     case 'canvas.setImageResult':
       settingImage.get(msg.requestId)?.({ ok: msg.ok, message: msg.message });
       settingImage.delete(msg.requestId);
+      break;
+    case 'canvas.insertImageResult':
+      insertingImage.get(msg.requestId)?.({ ok: msg.ok, dataUri: msg.dataUri, message: msg.message });
+      insertingImage.delete(msg.requestId);
       break;
     case 'block.ack':
       if (msg.token === currentToken) { blockHandler?.onAck(msg.rev); }
@@ -103,6 +118,23 @@ export function setCanvasImage(source: CanvasImageSource, alt: string): Promise<
   return new Promise<SetImageResult>((resolve) => {
     settingImage.set(requestId, resolve);
     postToHost({ type: 'canvas.setImage', token, requestId, alt, source });
+  });
+}
+
+/**
+ * Get a picture to place on the canvas: from the host's file picker, or from
+ * bytes the page has (paste, drop), which the host checks first. Nothing is
+ * written; the picture is a mark until Save.
+ */
+export function insertCanvasImage(source: CanvasInsertSource): Promise<InsertImageResult> {
+  const token = currentToken;
+  if (!token) {
+    return Promise.resolve({ ok: false, message: 'No block is open.' });
+  }
+  const requestId = crypto.randomUUID();
+  return new Promise<InsertImageResult>((resolve) => {
+    insertingImage.set(requestId, resolve);
+    postToHost({ type: 'canvas.insertImage', token, requestId, source });
   });
 }
 

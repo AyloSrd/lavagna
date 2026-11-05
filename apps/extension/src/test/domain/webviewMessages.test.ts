@@ -108,3 +108,30 @@ suite('parseWebviewMessage', () => {
     assert.strictEqual(MAX_IMAGE_BASE64_CHARS, Math.ceil((32 * 1024 * 1024) / 3) * 4);
   });
 });
+
+suite('parseWebviewMessage — canvas.insertImage', () => {
+  test('a dialog or a data source passes, with only the known fields kept', () => {
+    assert.deepStrictEqual(ok({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: { kind: 'dialog', extra: 1 } }), {
+      type: 'canvas.insertImage', token: 't', requestId: 'r', source: { kind: 'dialog' },
+    });
+    assert.deepStrictEqual(ok({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: { kind: 'data', dataBase64: 'AAAA' } }), {
+      type: 'canvas.insertImage', token: 't', requestId: 'r', source: { kind: 'data', dataBase64: 'AAAA' },
+    });
+  });
+
+  test('malformed sources, ids and over-long data are refused', () => {
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 'r' });
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: 'dialog' });
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: null });
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: [] });
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: { kind: 'url', href: 'https://x' } });
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: { kind: 'data' } });
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 'r', source: { kind: 'data', dataBase64: 42 } });
+    rejected({ type: 'canvas.insertImage', token: 't', requestId: 7, source: { kind: 'dialog' } });
+    rejected({ type: 'canvas.insertImage', token: 't'.repeat(1000), requestId: 'r', source: { kind: 'dialog' } });
+    rejected({
+      type: 'canvas.insertImage', token: 't', requestId: 'r',
+      source: { kind: 'data', dataBase64: 'A'.repeat(MAX_IMAGE_BASE64_CHARS + 4) },
+    });
+  });
+});

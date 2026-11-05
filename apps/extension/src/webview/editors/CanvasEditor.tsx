@@ -1,6 +1,6 @@
 import React, { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CanvasImageSource, CanvasImageState } from '../../shared/messages';
-import { saveCanvas, setCanvasImage } from '../hostBridge';
+import type { CanvasImageSource, CanvasImageState, CanvasInsertSource } from '../../shared/messages';
+import { insertCanvasImage, saveCanvas, setCanvasImage } from '../hostBridge';
 import type { EditorProps } from '../BlockEditorApp';
 import { HelpDialog, Hint, IconButton, isTyping, ZoomControls } from '../ui/controls';
 import { UndoStack } from '../ui/undoStack';
@@ -24,7 +24,9 @@ import {
   linePoints,
   mapMarks,
   moveEndpoint,
+  placeImage,
   removeMarks,
+  reorder,
   resizeBox,
   restyle,
   topHit,
@@ -49,6 +51,7 @@ import {
   Tool,
 } from './canvas/model';
 import { ReplaceImageMenu, SaveBar } from './canvas/SaveBar';
+import { registerImage } from './canvas/images';
 import { HELP_ROWS, HINTS, TOOL_KEYS } from './canvas/shortcuts';
 import { StyleBar, StylePatch } from './canvas/StyleBar';
 import { ToolRail } from './canvas/ToolRail';
@@ -65,6 +68,21 @@ import { fitView, toImage, toScreen, View, zoomAround } from './canvas/viewport'
 // canvas backing store, and its flattened data URL would be hundreds of MB.
 const MAX_IMAGE_EDGE = 8192;
 const MAX_IMAGE_PIXELS = 40_000_000;
+
+/** Largest picture the page reads for insertion; the host refuses more anyway. */
+const MAX_INSERT_BYTES = 32 * 1024 * 1024;
+
+const tooLarge = (w: number, h: number) => w > MAX_IMAGE_EDGE || h > MAX_IMAGE_EDGE || w * h > MAX_IMAGE_PIXELS;
+
+/** The bytes of a pasted or dropped file, base64 — what the host checks. */
+function fileBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 /** Below this stage width the rail moves to the bottom (see CSS). */
 const NARROW = 700;
@@ -98,6 +116,9 @@ export function CanvasEditor({
   const [background, setBackground] = useState<HTMLImageElement | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [settingImage, setSettingImage] = useState(false);
+  const [inserting, setInserting] = useState(false);
+  /** A short message in place of the hint, e.g. why an image was refused. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [marks, setMarks] = useState<Mark[]>([]);
   const [selIds, setSelIds] = useState<string[]>([]);
@@ -125,6 +146,10 @@ export function CanvasEditor({
   const stageBox = useRef<HTMLDivElement | null>(null);
   const surface = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
+  // Inserting awaits the host; by then `marks` in this render is stale.
+  const marksRef = useRef<Mark[]>([]);
+  marksRef.current = marks;
+  const insertingRef = useRef(false);
 
   const alt = value.match(/^ {0,3}!\[([^\]]*)\]/)?.[1] ?? 'canvas';
   const lookup = useMemo(() => lookupIn(marks), [marks]);
@@ -179,6 +204,14 @@ export function CanvasEditor({
       cancelled = true;
     };
   }, [imageUri, imageState]);
+
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   // Track the stage's size; the Konva stage is sized to it.
   useEffect(() => {
@@ -250,6 +283,68 @@ export function CanvasEditor({
     }
   };
 
+  /**
+   * Place a picture on top of the image, shrunk to fit inside it, centred on
+   * `at` (image coordinates) or on the canvas. It is a mark like any other —
+   * selectable, movable, resizable — until Save bakes it in.
+   */
+  const insertImage = async (source: CanvasInsertSource, at?: Point) => {
+    // A ref, not the `inserting` state: two pastes in one tick both see the
+    // state as it was rendered.
+    if (!background || insertingRef.current || saving || editing) {
+      return;
+    }
+    insertingRef.current = true;
+    setReplaceOpen(false);
+    setInserting(true);
+    try {
+      const res = await insertCanvasImage(source);
+      if (!res.ok || !res.dataUri) {
+        if (res.message) {
+          setNotice(res.message);
+        }
+        return;
+      }
+      const { asset, image } = await registerImage(res.dataUri);
+      if (tooLarge(image.naturalWidth, image.naturalHeight)) {
+        setNotice(`That image is too large to add (the limit is ${MAX_IMAGE_EDGE} pixels a side).`);
+        return;
+      }
+      const box = placeImage(
+        { w: image.naturalWidth, h: image.naturalHeight },
+        { w: background.naturalWidth, h: background.naturalHeight },
+        at,
+      );
+      const m: Mark = { ...style, id: newMarkId(), seed: newSeed(), type: 'image', asset, ...box };
+      const before = marksRef.current;
+      record(before);
+      setMarks([...before, m]);
+      setTool('select', true);
+      setSelIds([m.id]);
+    } catch {
+      setNotice('That image could not be read.');
+    } finally {
+      insertingRef.current = false;
+      setInserting(false);
+    }
+  };
+
+  /** A pasted or dropped file: read here, checked by the host, then placed. */
+  const insertFile = async (file: File, at?: Point) => {
+    if (file.size > MAX_INSERT_BYTES) {
+      setNotice('That image is too large to add (the limit is 32 MB).');
+      return;
+    }
+    try {
+      await insertImage({ kind: 'data', dataBase64: await fileBase64(file) }, at);
+    } catch {
+      setNotice('That image could not be read.');
+    }
+  };
+
+  const imageFile = (files: FileList | null | undefined): File | undefined =>
+    files ? Array.from(files).find((f) => f.type.startsWith('image/')) : undefined;
+
   const save = () => {
     // While a text box is open its text isn't in the marks yet, so flattening
     // now would silently drop it. Commit first (Enter, or click away).
@@ -287,6 +382,11 @@ export function CanvasEditor({
   const nudge = (dx: number, dy: number) => {
     const moved = detachArrows(marks, (id) => !selSet.has(id), (m) => selSet.has(m.id));
     change(moved.map((m) => (selSet.has(m.id) ? translate(m, dx, dy) : m)));
+  };
+  const reorderSelected = (to: 'front' | 'back') => {
+    if (selIds.length) {
+      change(reorder(marks, selSet, to));
+    }
   };
   const applyStyle = (patch: StylePatch) => {
     setStyle((s) => ({ ...s, ...patch }));
@@ -503,7 +603,10 @@ export function CanvasEditor({
         break;
       }
       case 'resize': {
-        const keepRatio = e.shiftKey || (d.orig.length === 1 && d.orig[0].type === 'text');
+        // Text always keeps its proportions; a lone image keeps them unless
+        // Shift frees it; everything else is free unless Shift locks it.
+        const only = d.orig.length === 1 ? d.orig[0].type : null;
+        const keepRatio = only === 'text' || (only === 'image' ? !e.shiftKey : e.shiftKey);
         const mapped = new Map(
           mapMarks(d.orig, d.from, resizeBox(d.from, d.handle, p, keepRatio), measureText).map((m) => [m.id, m]),
         );
@@ -688,6 +791,11 @@ export function CanvasEditor({
       const s = e.shiftKey ? 10 : 1;
       const [dx, dy] = ({ arrowleft: [-s, 0], arrowright: [s, 0], arrowup: [0, -s], arrowdown: [0, s] } as Record<string, number[]>)[key];
       nudge(dx, dy);
+    } else if ((e.key === ']' || e.key === '[') && selected.length) {
+      e.preventDefault();
+      reorderSelected(e.key === ']' ? 'front' : 'back');
+    } else if (key === 'i') {
+      void insertImage({ kind: 'dialog' });
     } else if (e.key === '?') {
       setHelpOpen(true);
     } else if (e.key === '!' || (e.shiftKey && e.code === 'Digit1')) {
@@ -702,6 +810,24 @@ export function CanvasEditor({
       setCursor(tool === 'hand' ? 'grab' : 'default');
     }
   });
+  // ⌘V with an image on the clipboard places it; text fields keep their paste.
+  const onPaste = useEffectEvent((e: ClipboardEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (!background || editing || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) {
+      return;
+    }
+    const file = imageFile(e.clipboardData?.files);
+    if (file) {
+      e.preventDefault();
+      void insertFile(file);
+    }
+  });
+  useEffect(() => {
+    const paste = (e: ClipboardEvent) => onPaste(e);
+    window.addEventListener('paste', paste);
+    return () => window.removeEventListener('paste', paste);
+  }, []);
+
   useEffect(() => {
     const down = (e: KeyboardEvent) => onKeyDown(e);
     const up = (e: KeyboardEvent) => onKeyUp(e);
@@ -766,6 +892,19 @@ export function CanvasEditor({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onDoubleClick={onDoubleClick}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes('Files')) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+            }
+          }}
+          onDrop={(e) => {
+            const file = imageFile(e.dataTransfer.files);
+            if (file) {
+              e.preventDefault();
+              void insertFile(file, pointAt(e).image);
+            }
+          }}
         >
           {size.w > 0 && (
             <CanvasStage
@@ -788,6 +927,8 @@ export function CanvasEditor({
         <ToolRail
           tool={tool}
           onTool={(t) => setTool(t)}
+          onInsertImage={() => void insertImage({ kind: 'dialog' })}
+          inserting={inserting || saving}
           replaceOpen={replaceOpen}
           onReplaceImage={() => setReplaceOpen((o) => !o)}
         />
@@ -808,6 +949,7 @@ export function CanvasEditor({
             onChange={applyStyle}
             onDuplicate={duplicateSelected}
             onDelete={deleteSelected}
+            onReorder={reorderSelected}
           />
         )}
 
@@ -818,7 +960,7 @@ export function CanvasEditor({
         </div>
 
         <ZoomControls zoom={view.z} onZoomIn={() => zoomBy(1.2)} onZoomOut={() => zoomBy(1 / 1.2)} onFit={fit} />
-        <Hint>{HINTS[tool === 'select' && selected.length ? 'selected' : tool]}</Hint>
+        <Hint>{notice ?? (inserting ? 'Adding the image…' : HINTS[tool === 'select' && selected.length ? 'selected' : tool])}</Hint>
         <SaveBar
           count={marks.length}
           saving={saving}

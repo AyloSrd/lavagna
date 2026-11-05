@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { MediaPort } from '../application/ports/MediaPort';
 import { imageTarget } from '../domain/blocks/parseBlocks';
 import { LavagnaBlock } from '../domain/blocks/types';
-import { MAX_IMAGE_BYTES, sniffImageType } from '../domain/media/imageType';
+import { IMAGE_MIME, ImageType, MAX_IMAGE_BYTES, sniffImageType } from '../domain/media/imageType';
 import { isSafeRelativePath } from '../domain/references/safePath';
 import { log } from '../infrastructure/logging/log';
 import { blankCanvasBytes } from '../infrastructure/media/blankCanvas';
@@ -345,36 +345,12 @@ export class BlockEditorPanel {
           let bytes: Uint8Array;
           let ext = 'png';
           if (msg.source === 'dialog') {
-            const picked = await vscode.window.showOpenDialog({
-              canSelectMany: false,
-              openLabel: 'Use as canvas',
-              title: 'Choose an image for this canvas',
-              filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] },
-            });
-            if (!picked?.length) {
+            const picked = await this._pickImage('Use as canvas', 'Choose an image for this canvas');
+            if (!picked) {
               fail(); // plain cancel — no message, so the webview shows no error
               break;
             }
-            // Size first, so a multi-gigabyte pick is never read into memory.
-            const stat = await vscode.workspace.fs.stat(picked[0]);
-            // A FIFO or a device (`/dev/zero`) reports size 0 and would hang
-            // `readFile`; a link to a regular file is fine — the user picked it.
-            if ((stat.type & vscode.FileType.File) === 0) {
-              throw new Error('Choose an image file.');
-            }
-            if (stat.size > MAX_IMAGE_BYTES) {
-              throw new Error('That image is too large to use (the limit is 32 MB).');
-            }
-            bytes = await vscode.workspace.fs.readFile(picked[0]);
-            // The picker's filter is only a filter ("All files" is one click
-            // away), and an extension is only a name. What goes under
-            // `.lavagna/media/` is decided by the bytes: PNG, JPEG, GIF, WebP
-            // or BMP — never SVG, which is script-capable markup.
-            const type = bytes.byteLength > MAX_IMAGE_BYTES ? null : sniffImageType(bytes);
-            if (!type) {
-              throw new Error('That file is not a PNG, JPEG, GIF, WebP or BMP image.');
-            }
-            ext = type;
+            ({ bytes, type: ext } = picked);
           } else {
             bytes = await blankCanvasBytes(this._deps.extensionUri);
           }
@@ -388,6 +364,44 @@ export class BlockEditorPanel {
         }
         break;
       }
+      case 'canvas.insertImage': {
+        const session = this._session;
+        if (!session || msg.token !== session.token) {
+          break;
+        }
+        const answer = (result: { ok: boolean; dataUri?: string; message?: string }) =>
+          this._post({ type: 'canvas.insertImageResult', requestId: msg.requestId, ...result });
+        try {
+          let picked: { bytes: Uint8Array; type: ImageType } | null;
+          if (msg.source.kind === 'dialog') {
+            picked = await this._pickImage('Insert', 'Choose an image to add to the canvas');
+            if (!picked) {
+              answer({ ok: false }); // plain cancel
+              break;
+            }
+          } else {
+            // A paste or a drop: the page read the bytes, so they are checked
+            // here exactly like a picked file before the page may draw them.
+            const bytes = decodeBase64(msg.source.dataBase64);
+            const type = bytes.byteLength > MAX_IMAGE_BYTES ? null : sniffImageType(bytes);
+            if (!type) {
+              throw new Error('That is not a PNG, JPEG, GIF, WebP or BMP image.');
+            }
+            picked = { bytes, type };
+          }
+          if (this._session !== session) {
+            // Retargeted while the dialog was open: still answer, so the page
+            // that asked is not left waiting with Insert disabled.
+            answer({ ok: false });
+            break;
+          }
+          const dataUri = `data:${IMAGE_MIME[picked.type]};base64,${Buffer.from(picked.bytes).toString('base64')}`;
+          answer({ ok: true, dataUri });
+        } catch (err) {
+          answer({ ok: false, message: err instanceof Error ? err.message : String(err) });
+        }
+        break;
+      }
       case 'clipboard.write': {
         if (!this._session || msg.token !== this._session.token) {
           break;
@@ -397,6 +411,41 @@ export class BlockEditorPanel {
         break;
       }
     }
+  }
+
+  /**
+   * Ask the user for an image file and read it. Null when the dialog is
+   * cancelled; throws when the pick is not a usable image. Nothing is written.
+   */
+  private async _pickImage(openLabel: string, title: string): Promise<{ bytes: Uint8Array; type: ImageType } | null> {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectMany: false,
+      openLabel,
+      title,
+      filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] },
+    });
+    if (!picked?.length) {
+      return null;
+    }
+    // Size first, so a multi-gigabyte pick is never read into memory.
+    const stat = await vscode.workspace.fs.stat(picked[0]);
+    // A FIFO or a device (`/dev/zero`) reports size 0 and would hang
+    // `readFile`; a link to a regular file is fine — the user picked it.
+    if ((stat.type & vscode.FileType.File) === 0) {
+      throw new Error('Choose an image file.');
+    }
+    if (stat.size > MAX_IMAGE_BYTES) {
+      throw new Error('That image is too large to use (the limit is 32 MB).');
+    }
+    const bytes = await vscode.workspace.fs.readFile(picked[0]);
+    // The picker's filter is only a filter ("All files" is one click away),
+    // and an extension is only a name. What is used is decided by the bytes:
+    // PNG, JPEG, GIF, WebP or BMP — never SVG, which is script-capable markup.
+    const type = bytes.byteLength > MAX_IMAGE_BYTES ? null : sniffImageType(bytes);
+    if (!type) {
+      throw new Error('That file is not a PNG, JPEG, GIF, WebP or BMP image.');
+    }
+    return { bytes, type };
   }
 
   private _dispose(): void {

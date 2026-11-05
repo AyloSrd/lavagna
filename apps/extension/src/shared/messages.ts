@@ -20,6 +20,13 @@ export type CanvasImageState = 'empty' | 'missing' | 'present';
 /** Where the bytes for a new canvas image come from. */
 export type CanvasImageSource = 'dialog' | 'blank';
 
+/**
+ * Where a picture inserted on top of the canvas comes from: the host's file
+ * picker, or bytes the page already has (a paste or a dropped file), which the
+ * host checks before they are drawn.
+ */
+export type CanvasInsertSource = { kind: 'dialog' } | { kind: 'data'; dataBase64: string };
+
 export interface BlockMeta {
   /** Board file name for the panel/editor header, e.g. "ideas.lavagna.md". */
   fileName: string;
@@ -58,7 +65,17 @@ export type HostToWebview =
   | { type: 'block.gone'; token: string }
   // Outcome of canvas.setImage. `ok: false` with no message means the user
   // cancelled the file dialog — normal flow, not an error.
-  | { type: 'canvas.setImageResult'; requestId: string; ok: boolean; message?: string };
+  | { type: 'canvas.setImageResult'; requestId: string; ok: boolean; message?: string }
+  // Outcome of canvas.insertImage: a checked image as a data: URI, drawn as a
+  // mark until Save. Nothing is written to disk. `ok: false` with no message
+  // is a cancelled file dialog.
+  | {
+      type: 'canvas.insertImageResult';
+      requestId: string;
+      ok: boolean;
+      dataUri?: string;
+      message?: string;
+    };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -81,5 +98,8 @@ export type WebviewToHost =
       alt: string;
       source: CanvasImageSource;
     }
+  // Insert a picture on top of the canvas. The host reads (or checks) the
+  // bytes and answers with canvas.insertImageResult; the block is untouched.
+  | { type: 'canvas.insertImage'; token: string; requestId: string; source: CanvasInsertSource }
   // `token` so the host can drop stragglers, like every other webview message.
   | { type: 'clipboard.write'; token: string; text: string; label?: string };
