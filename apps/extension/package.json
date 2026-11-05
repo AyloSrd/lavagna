@@ -2,7 +2,7 @@
   "name": "lavagna",
   "displayName": "Lavagna",
   "description": "Write structured prompts and plans in markdown, with visual editors for mermaid flowcharts, trees, tables and drawings.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "aylosrd",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -66,6 +66,15 @@
         "title": "Refresh Boards",
         "category": "Lavagna",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "lavagna.cleanMedia",
+        "title": "Clean Unused Media",
+        "category": "Lavagna",
+        "icon": {
+          "light": "media/brush-light.svg",
+          "dark": "media/brush-dark.svg"
+        }
       },
       {
         "command": "lavagna.insertBlock.flow",
@@ -236,6 +245,11 @@
         {
           "command": "lavagna.refreshBoards",
           "group": "navigation@2",
+          "when": "view == lavagna.boards"
+        },
+        {
+          "command": "lavagna.cleanMedia",
+          "group": "navigation@3",
           "when": "view == lavagna.boards"
         }
       ],

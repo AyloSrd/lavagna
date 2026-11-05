@@ -40,6 +40,8 @@ const ALLOWED_FILES = new Set([
   'extension/media/icon.png',
   'extension/media/spiral.svg',
   'extension/media/blank-canvas.png',
+  'extension/media/brush-light.svg',
+  'extension/media/brush-dark.svg',
   'extension/media/webview.js',
 ]);
 

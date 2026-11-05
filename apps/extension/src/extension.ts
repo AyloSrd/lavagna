@@ -10,6 +10,7 @@ import { BoardsTreeProvider } from './presentation/providers/BoardsTreeProvider'
 import { BlockCodeLensProvider } from './presentation/providers/BlockCodeLensProvider';
 import { BlockHoverProvider } from './presentation/providers/BlockHoverProvider';
 import { registerBoardCommands } from './presentation/commands/boardCommands';
+import { registerMediaCommands } from './presentation/commands/mediaCommands';
 import { registerBlockCommands } from './presentation/commands/blockCommands';
 import { registerInsertFileRef } from './presentation/commands/insertFileRef';
 import { FileRefLinkProvider, registerOpenFileRef } from './presentation/providers/FileRefLinkProvider';
@@ -52,6 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
     // '/' opens the block menu, Notion-style.
     vscode.languages.registerCompletionItemProvider(LAVAGNA_DOC_SELECTOR, new SlashMenuProvider(), '/'),
     ...registerBoardCommands(boards, tree),
+    ...registerMediaCommands(media, boards),
     ...registerBlockCommands((document, block) =>
       BlockEditorPanel.open(
         { extensionUri: context.extensionUri, media, workspaceRoot },

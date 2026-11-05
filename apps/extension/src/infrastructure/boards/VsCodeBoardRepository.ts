@@ -45,6 +45,24 @@ export class VsCodeBoardRepository implements BoardRepositoryPort {
     return boards.sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  async listAll(): Promise<Board[]> {
+    let entries: [string, vscode.FileType][];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(this._dir);
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+        return [];
+      }
+      throw error;
+    }
+    const boards = entries.filter(([name]) => isBoardFileName(name));
+    const odd = boards.find(([, type]) => type !== vscode.FileType.File);
+    if (odd) {
+      throw new Error(`${BOARDS_DIR}/${odd[0]} is a symbolic link or not a plain file, so its links can't be checked.`);
+    }
+    return boards.map(([name]) => this._toBoard(name));
+  }
+
   async create(fileName: string, content: string): Promise<Board> {
     const bytes = new TextEncoder().encode(content);
     if (this._workspaceRoot.scheme === 'file') {
@@ -94,6 +112,17 @@ export class VsCodeBoardRepository implements BoardRepositoryPort {
 
   async delete(fsPath: string): Promise<void> {
     await vscode.workspace.fs.delete(vscode.Uri.file(fsPath), { useTrash: true });
+  }
+
+  async readText(board: Board): Promise<string> {
+    const uri = vscode.Uri.file(board.fsPath);
+    // An open board may hold edits not saved yet — a canvas Save relinks its
+    // image line with a WorkspaceEdit, so the new link is only in the editor.
+    const open = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString());
+    if (open) {
+      return open.getText();
+    }
+    return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
   }
 
   async existingFileNames(): Promise<string[]> {

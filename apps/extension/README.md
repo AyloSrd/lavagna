@@ -38,7 +38,10 @@ them like any other edit. Diagrams you wrote by hand open too, and stay exactly
 as you wrote them; anything the editor can't handle safely opens read-only.
 
 Canvas images are saved in `.lavagna/media/`; your drawing is only written
-when you click **Save**.
+when you click **Save**. Each Save writes a new image, so the brush in the
+Lavagna panel's title bar (**Clean Unused Media**) lists the images no board
+mentions any more; untick any you want to keep, confirm, and the rest go to
+the trash.
 
 ## Linking to code
 
