@@ -25,6 +25,7 @@ import {
   mapMarks,
   moveEndpoint,
   placeImage,
+  pointInBox,
   removeMarks,
   reorder,
   resizeBox,
@@ -51,6 +52,7 @@ import {
   Tool,
 } from './canvas/model';
 import { ReplaceImageMenu, SaveBar } from './canvas/SaveBar';
+import { copyMarks, hasCopiedMarks, pasteMarks } from './canvas/clipboard';
 import { registerImage } from './canvas/images';
 import { HELP_ROWS, HINTS, TOOL_KEYS } from './canvas/shortcuts';
 import { StyleBar, StylePatch } from './canvas/StyleBar';
@@ -89,7 +91,9 @@ const NARROW = 700;
 
 type Drag =
   | { mode: 'pan'; sx: number; sy: number; vx: number; vy: number }
-  | { mode: 'move'; last: Point; moved: boolean; before: Mark[] }
+  // `clearOnClick`: the drag began on empty space inside the selection box, so
+  // a plain click there (no movement) deselects instead of moving.
+  | { mode: 'move'; last: Point; moved: boolean; before: Mark[]; clearOnClick?: boolean }
   | { mode: 'marquee'; start: Point; base: string[] }
   | { mode: 'resize'; handle: Handle; from: Box; orig: Mark[]; before: Mark[] }
   | { mode: 'endpoint'; id: string; index: 0 | 1; before: Mark[] }
@@ -137,6 +141,8 @@ export function CanvasEditor({
   const [cursor, setCursor] = useState('default');
   /** Measured width of the style bar, to keep it inside the stage. */
   const [barWidth, setBarWidth] = useState(0);
+  /** Whether there are copied marks, for the Paste button. */
+  const [canPaste, setCanPaste] = useState(hasCopiedMarks);
   // Undo lives in a ref; this tick re-renders the undo/redo buttons.
   const [, setHistoryTick] = useState(0);
 
@@ -147,6 +153,8 @@ export function CanvasEditor({
   const surface = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   // Inserting awaits the host; by then `marks` in this render is stale.
+  /** When the last paste event arrived, so the ⌘V key fallback never pastes twice. */
+  const lastPasteEvent = useRef(0);
   const marksRef = useRef<Mark[]>([]);
   marksRef.current = marks;
   const insertingRef = useRef(false);
@@ -383,6 +391,28 @@ export function CanvasEditor({
     const moved = detachArrows(marks, (id) => !selSet.has(id), (m) => selSet.has(m.id));
     change(moved.map((m) => (selSet.has(m.id) ? translate(m, dx, dy) : m)));
   };
+  const copySelected = () => {
+    if (selected.length) {
+      copyMarks(selected, marks);
+      setCanPaste(true);
+      setNotice(`Copied ${selected.length} mark${selected.length === 1 ? '' : 's'}`);
+    }
+  };
+  const cutSelected = () => {
+    if (selected.length) {
+      copySelected();
+      deleteSelected();
+    }
+  };
+  const paste = () => {
+    const copies = pasteMarks();
+    if (!copies || !background || editing) {
+      return;
+    }
+    change([...marks, ...copies]);
+    setTool('select', true);
+    setSelIds(copies.map((c) => c.id));
+  };
   const reorderSelected = (to: 'front' | 'back') => {
     if (selIds.length) {
       change(reorder(marks, selSet, to));
@@ -481,6 +511,10 @@ export function CanvasEditor({
     return null;
   };
 
+  /** Whether `p` is inside the box drawn around the current selection. */
+  const inSelectionBox = (p: Point): boolean =>
+    selected.length > 0 && pointInBox(p, unionBounds(selected, lookup), SELECTION_PAD / view.z);
+
   const attachTargetAt = (p: Point, exclude: (string | undefined)[]) =>
     topHit(marks, p, slop, (m) => isAttachable(m) && !exclude.includes(m.id))?.id ?? null;
 
@@ -511,7 +545,9 @@ export function CanvasEditor({
         drag.current = { mode: 'resize', handle: control.handle, from: unionBounds(selected, lookup), orig: selected, before: marks };
         return;
       }
-      const hit = topHit(marks, p, slop);
+      // ⌥-drag always draws a selection box, even starting on a mark — the
+      // way to box-select over a picture that covers the canvas.
+      const hit = e.altKey ? undefined : topHit(marks, p, slop);
       if (hit) {
         if (e.shiftKey) {
           setSelIds(selSet.has(hit.id) ? selIds.filter((id) => id !== hit.id) : [...selIds, hit.id]);
@@ -519,6 +555,10 @@ export function CanvasEditor({
           setSelIds([hit.id]);
         }
         drag.current = { mode: 'move', last: p, moved: false, before: marks };
+      } else if (!e.altKey && !e.shiftKey && inSelectionBox(p)) {
+        // Anywhere inside the selection box drags the whole selection, gaps
+        // between the marks included.
+        drag.current = { mode: 'move', last: p, moved: false, before: marks, clearOnClick: true };
       } else {
         const base = e.shiftKey ? selIds : [];
         setSelIds(base);
@@ -567,7 +607,8 @@ export function CanvasEditor({
         setCursor(tool === 'text' ? 'text' : 'crosshair');
       } else {
         const control = controlAt(p);
-        setCursor(control ? ('handle' in control ? HANDLE_CURSOR[control.handle] : 'pointer') : topHit(marks, p, slop) ? 'move' : 'default');
+        const movable = !e.altKey && (topHit(marks, p, slop) || inSelectionBox(p));
+        setCursor(control ? ('handle' in control ? HANDLE_CURSOR[control.handle] : 'pointer') : movable ? 'move' : 'default');
       }
       return;
     }
@@ -660,6 +701,8 @@ export function CanvasEditor({
       case 'move':
         if (d.moved) {
           record(d.before);
+        } else if (d.clearOnClick) {
+          setSelIds([]);
         }
         break;
       case 'resize':
@@ -760,6 +803,22 @@ export function CanvasEditor({
       return;
     }
     if (mod) {
+      // Normally ⌘C / ⌘X / ⌘V arrive as copy/cut/paste events (handled
+      // below); the keys are a fallback for hosts that don't send them. Copy
+      // and cut are safe to run twice; paste waits a moment and runs only if
+      // no paste event came.
+      const clipboardKeys: Record<string, () => void> = {
+        c: copySelected,
+        x: cutSelected,
+        v: () => {
+          const pressed = performance.now();
+          setTimeout(() => {
+            if (lastPasteEvent.current < pressed) {
+              pasteLater();
+            }
+          }, 100);
+        },
+      };
       const actions: Record<string, () => void> = {
         z: () => (e.shiftKey ? redo() : undo()),
         y: redo,
@@ -770,6 +829,10 @@ export function CanvasEditor({
       if (actions[key]) {
         e.preventDefault();
         actions[key]();
+      } else if (clipboardKeys[key]) {
+        // Not prevented: the browser must still fire its own copy/cut/paste
+        // event, which is what carries a pasted image.
+        clipboardKeys[key]();
       }
       return;
     }
@@ -811,7 +874,9 @@ export function CanvasEditor({
     }
   });
   // ⌘V with an image on the clipboard places it; text fields keep their paste.
+  const pasteLater = useEffectEvent(() => paste());
   const onPaste = useEffectEvent((e: ClipboardEvent) => {
+    lastPasteEvent.current = performance.now();
     const t = e.target as HTMLElement | null;
     if (!background || editing || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) {
       return;
@@ -820,12 +885,40 @@ export function CanvasEditor({
     if (file) {
       e.preventDefault();
       void insertFile(file);
+    } else if (hasCopiedMarks()) {
+      // Nothing else on the clipboard means anything on a canvas, so ⌘V
+      // pastes the marks copied here last.
+      e.preventDefault();
+      paste();
+    }
+  });
+  // ⌘C / ⌘X arrive as copy/cut events — VS Code turns the keys into those
+  // inside a webview — so they are handled there rather than as keys. The
+  // system clipboard keeps what it had: the marks stay in the page.
+  const onCopy = useEffectEvent((e: ClipboardEvent, cut: boolean) => {
+    const t = e.target as HTMLElement | null;
+    if (!background || editing || !selected.length || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) {
+      return;
+    }
+    e.preventDefault();
+    if (cut) {
+      cutSelected();
+    } else {
+      copySelected();
     }
   });
   useEffect(() => {
     const paste = (e: ClipboardEvent) => onPaste(e);
+    const copy = (e: ClipboardEvent) => onCopy(e, false);
+    const cut = (e: ClipboardEvent) => onCopy(e, true);
     window.addEventListener('paste', paste);
-    return () => window.removeEventListener('paste', paste);
+    window.addEventListener('copy', copy);
+    window.addEventListener('cut', cut);
+    return () => {
+      window.removeEventListener('paste', paste);
+      window.removeEventListener('copy', copy);
+      window.removeEventListener('cut', cut);
+    };
   }, []);
 
   useEffect(() => {
@@ -948,6 +1041,7 @@ export function CanvasEditor({
             barRef={barRef}
             onChange={applyStyle}
             onDuplicate={duplicateSelected}
+            onCopy={copySelected}
             onDelete={deleteSelected}
             onReorder={reorderSelected}
           />
@@ -956,6 +1050,7 @@ export function CanvasEditor({
         <div className="lv-float lv-canvas-history">
           <IconButton icon="undo" label="Undo" shortcut="⌘Z" disabled={!history.current.canUndo} onPress={undo} />
           <IconButton icon="redo" label="Redo" shortcut="⇧⌘Z" disabled={!history.current.canRedo} onPress={redo} />
+          <IconButton icon="paste" label="Paste copied marks" shortcut="⌘V" disabled={!canPaste} onPress={paste} />
           <IconButton icon="help" label="Keyboard shortcuts" shortcut="?" onPress={() => setHelpOpen(true)} />
         </div>
 

@@ -30,6 +30,7 @@ export function StyleBar({
   barRef,
   onChange,
   onDuplicate,
+  onCopy,
   onDelete,
   onReorder,
 }: {
@@ -41,6 +42,7 @@ export function StyleBar({
   barRef: React.Ref<HTMLDivElement>;
   onChange(patch: StylePatch): void;
   onDuplicate(): void;
+  onCopy(): void;
   onDelete(): void;
   onReorder(to: 'front' | 'back'): void;
 }) {
@@ -131,6 +133,7 @@ export function StyleBar({
           {(show.color || show.width || show.fill || show.lineStyle || show.fontSize) && <Separator />}
           <IconButton icon="front" label="Bring to front" shortcut="]" onPress={() => onReorder('front')} />
           <IconButton icon="back" label="Send to back" shortcut="[" onPress={() => onReorder('back')} />
+          <IconButton icon="copy" label="Copy" shortcut="⌘C" onPress={onCopy} />
           <IconButton icon="duplicate" label="Duplicate" shortcut="⌘D" onPress={onDuplicate} />
           <IconButton icon="trash" label="Delete" shortcut="⌫" danger onPress={onDelete} />
         </>

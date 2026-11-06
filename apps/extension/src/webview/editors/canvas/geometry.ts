@@ -91,6 +91,10 @@ export function unionBounds(marks: readonly Mark[], lookup: Lookup): Box {
 export const contains = (outer: Box, inner: Box): boolean =>
   inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
 
+/** Whether `p` lies in `b` grown by `pad` on every side. */
+export const pointInBox = (p: Point, b: Box, pad = 0): boolean =>
+  p.x >= b.x - pad && p.x <= b.x + b.w + pad && p.y >= b.y - pad && p.y <= b.y + b.h + pad;
+
 export function boxFrom(a: Point, b: Point): Box {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
 }
