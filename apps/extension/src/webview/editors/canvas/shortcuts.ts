@@ -22,9 +22,11 @@ export const HELP_ROWS: ShortcutRow[] = [
   { action: 'Insert an image', keys: ['I', '⌘V', 'drop'] },
   { action: 'Edit text / label', keys: ['Enter'] },
   { action: 'Delete', keys: ['⌫'] },
+  { action: 'Copy / cut / paste', keys: ['⌘C', '⌘X', '⌘V'] },
   { action: 'Duplicate', keys: ['⌘D'] },
   { action: 'Bring to front / send to back', keys: [']', '['] },
   { action: 'Select all', keys: ['⌘A'] },
+  { action: 'Box-select (even over a picture)', keys: ['drag', '⌥ drag'] },
   { action: 'Undo / redo', keys: ['⌘Z', '⇧⌘Z'] },
   { action: 'Nudge', keys: ['←↑→↓', '⇧'] },
   { action: 'Square / straight · free image ratio', keys: ['⇧ drag'] },
@@ -35,8 +37,8 @@ export const HELP_ROWS: ShortcutRow[] = [
 
 /** Hint per tool; `selected` is shown when the select tool has a selection. */
 export const HINTS: Record<Tool | 'selected', string> = {
-  select: 'Click a mark to select · drag for a box · double-click to write',
-  selected: 'Drag to move · handles resize · Enter edits text · ] [ reorder · ⌫ deletes',
+  select: 'Click a mark to select · drag for a box (⌥ over a picture) · double-click to write',
+  selected: 'Drag inside the box to move · handles resize · ⌘C ⌘V · ] [ reorder · ⌫ deletes',
   hand: 'Drag to move around the image',
   pen: 'Draw freely · pick a colour above first',
   marker: 'Highlight · hold ⇧ for a straight stroke',

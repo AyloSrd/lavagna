@@ -1,5 +1,25 @@
 # Change Log
 
+## 0.5.1
+
+### Added
+
+- **Canvas: copy, cut and paste.** `⌘C` / `⌘X` / `⌘V` (Ctrl on Windows and
+  Linux), a **Copy** button in the selection bar and a **Paste** button next
+  to undo and redo. Each paste lands a little further along and comes back
+  selected; arrows between copied marks stay attached. Copies stay inside the
+  editor, so they paste into any canvas but not into other apps. An image on
+  the system clipboard still pastes as a new picture.
+
+### Changed
+
+- **Canvas: moving a group.** Dragging anywhere inside the selection box —
+  including the gaps between marks — moves the whole selection at its size;
+  a click in a gap deselects.
+- **Canvas: box-select over a picture.** Hold `⌥` (Alt) and drag to draw a
+  selection box even when the drag starts on a mark, such as a picture that
+  covers the canvas.
+
 ## 0.5.0
 
 ### Added
